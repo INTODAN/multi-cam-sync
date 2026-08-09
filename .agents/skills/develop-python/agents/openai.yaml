@@ -1,0 +1,4 @@
+interface:
+  display_name: "Develop Python"
+  short_description: "Build and verify the Python project safely"
+  default_prompt: "Use $develop-python to implement this Python task with uv, Ruff, ty, and pytest."

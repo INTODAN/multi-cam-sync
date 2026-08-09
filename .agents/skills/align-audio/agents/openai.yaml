@@ -1,0 +1,4 @@
+interface:
+  display_name: "Align Audio"
+  short_description: "Implement robust master-to-camera audio alignment"
+  default_prompt: "Use $align-audio to implement or review master-to-camera audio synchronization."

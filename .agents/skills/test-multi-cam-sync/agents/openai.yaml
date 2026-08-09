@@ -1,0 +1,4 @@
+interface:
+  display_name: "Test Multi-Cam Sync"
+  short_description: "Design deterministic tests for sync and timelines"
+  default_prompt: "Use $test-multi-cam-sync to add deterministic tests for this project task."

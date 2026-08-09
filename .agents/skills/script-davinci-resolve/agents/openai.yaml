@@ -1,0 +1,4 @@
+interface:
+  display_name: "Script DaVinci Resolve"
+  short_description: "Build timeline automation with the Resolve API"
+  default_prompt: "Use $script-davinci-resolve to implement or review Resolve timeline automation."
