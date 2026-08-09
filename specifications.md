@@ -24,3 +24,7 @@ We will use davinci resolve's python api. The user will create the needed media 
 ## Technichal challenge:
 We will have to match a time range in the multicam track's audio to the time range in the master take.
 Since the master take is taken from different mics than the camera rough audio, the audio will not be exact. Because of this, davinci resolve's python api will have to do some audio matching, as davinci resolve is not able to syncronize the audio with its built in features.
+
+I have already done some work with audio syncronization with python at /home/itaielidan/PycharmProjects/elidan-take-picker-workspace/main
+You are welcome to take inspiration from it if need be.  
+Notice that I don't think a .etp project file will be helpful, as the audio files in the project are recorded with the good mics and not the camera's mics, but if I am wrong let me know, and we can add the etp file to the user's input in this app.
