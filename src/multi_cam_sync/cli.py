@@ -10,6 +10,9 @@ from pathlib import Path
 from typing import Protocol, TextIO
 
 from multi_cam_sync import __version__
+
+# This side-effect import rejects unsafe sub-interpreters before the native imports below.
+from multi_cam_sync._runtime import MAIN_INTERPRETER_RUNTIME  # noqa: F401
 from multi_cam_sync.alignment import AlignmentError
 from multi_cam_sync.domain import DomainError
 from multi_cam_sync.media import MediaError

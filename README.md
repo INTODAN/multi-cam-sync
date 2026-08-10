@@ -8,16 +8,22 @@ The tool is deliberately non-destructive: it reads media already in the current 
 project, never imports or relinks media, never replaces an existing timeline, and does not
 change Resolve during `validate` or `analyze`.
 
-## Prerequisites and setup
+## Quick start: Resolve Studio external scripting
+
+Run this application from a normal terminal while DaVinci Resolve Studio is open. Do not
+import it from **Workspace → Console**; the audio-analysis dependencies are intended for a
+standalone Python process.
+
+### 1. Install the command dependencies
 
 You need:
 
 - Python 3.12 or newer;
 - [`uv`](https://docs.astral.sh/uv/) for the environment and locked dependencies;
 - `ffmpeg` and `ffprobe` available on `PATH`;
-- DaVinci Resolve with external scripting enabled and the intended project open.
+- an activated DaVinci Resolve Studio installation.
 
-Check the media tools and create the locked development environment:
+From the repository root, check the media tools and create the locked environment:
 
 ```bash
 ffmpeg -version
@@ -26,10 +32,21 @@ uv sync --all-groups
 uv run multi-cam-sync --version
 ```
 
-In Resolve Preferences, allow scripts to run outside the Resolve console. Resolve must be
-running and the target project must be current before invoking any product command. Follow
-the `Developer/Scripting/README.txt` bundled with your Resolve installation for the paths on
-your operating system. A typical Linux installation uses:
+### 2. Enable local external scripting
+
+1. Launch DaVinci Resolve Studio.
+2. Open **DaVinci Resolve → Preferences → System → General**.
+3. Set **External scripting using** to **Local**.
+4. Save the preference and restart Resolve Studio.
+5. Open the project that contains the master audio and source video.
+
+Use `Local`, not `Network`: this application connects only from the same computer and does
+not need Resolve's scripting API exposed to the network.
+
+### 3. Expose Resolve's scripting module to Python
+
+Python must be able to find Resolve's scripting module and native library. Export the paths in
+every terminal session that will run `multi-cam-sync`. A standard Linux installation uses:
 
 ```bash
 export RESOLVE_SCRIPT_API=/opt/resolve/Developer/Scripting
@@ -37,15 +54,52 @@ export RESOLVE_SCRIPT_LIB=/opt/resolve/libs/Fusion/fusionscript.so
 export PYTHONPATH="${PYTHONPATH:+$PYTHONPATH:}$RESOLVE_SCRIPT_API/Modules"
 ```
 
+If Resolve is installed somewhere other than `/opt/resolve`, use its actual installation path.
+For macOS and Windows, use the paths in Resolve's bundled
+`Help → Documentation → Developer → Scripting` README.
+
+### 4. Verify the external connection
+
+With Resolve Studio running and the intended project open, run this read-only smoke check from
+the same terminal:
+
+```bash
+uv run python - <<'PY'
+import DaVinciResolveScript as dvr_script
+
+resolve = dvr_script.scriptapp("Resolve")
+if resolve is None or resolve is False:
+    raise SystemExit("Could not connect to Resolve Studio")
+
+project_manager = resolve.GetProjectManager()
+project = project_manager.GetCurrentProject() if project_manager else None
+if project is None or project is False:
+    raise SystemExit("Connected to Resolve Studio, but no project is open")
+
+print(resolve.GetProductName(), resolve.GetVersionString())
+print("Current project:", project.GetName())
+PY
+```
+
+The check should print `DaVinci Resolve Studio`, its version, and the exact current project
+name. It does not change the project.
+
+If importing `DaVinciResolveScript` fails, recheck the three exported paths in the current
+terminal. If the import works but the connection fails, confirm that Resolve Studio was
+restarted after selecting `Local`. If the product name does not include `Studio`, confirm that
+the Studio license is activated.
+
+### 5. Prepare the project and configuration
+
 The Media Pool must already contain the master item and every video item named in the
 configuration. Selectors are exact and case-sensitive: a folder path and item name must
-resolve to exactly one Media Pool item.
+resolve to exactly one Media Pool item. Copy
+[`examples/project.example.toml`](examples/project.example.toml) to a private working location,
+then update its timeline name, cut-list path, exact Media Pool selectors, and analysis paths.
 
-## Configuration
+## Configuration reference
 
-Copy [`examples/project.example.toml`](examples/project.example.toml) to a private working
-location and change the selectors and filesystem paths. Do not commit a configuration that
-contains private media paths.
+Do not commit a configuration that contains private media paths.
 
 The complete version-1 TOML shape is:
 
@@ -128,7 +182,7 @@ There is an important safety distinction:
 - supplied take with a failed or ambiguous match: `video_status = "unsafe"`; build is
   blocked instead of silently leaving requested video out.
 
-## Workflow
+## Run the workflow
 
 Use a report path outside source control (the repository ignores `reports/` and
 `*.alignment-report.json`):
@@ -139,7 +193,9 @@ uv run multi-cam-sync analyze /path/to/project.toml --report reports/alignment-r
 uv run multi-cam-sync build /path/to/project.toml --report reports/alignment-report.json
 ```
 
-An installed environment can omit `uv run` and invoke `multi-cam-sync` directly.
+Run all three commands from the same externally configured terminal while Resolve Studio
+remains open on the same project. An externally installed environment can omit `uv run` and
+invoke `multi-cam-sync` directly.
 
 1. `validate` checks the TOML, cuts, files, open Resolve project, exact Media Pool selectors,
    frame settings, and target timeline name. It does not decode full audio or mutate Resolve.
@@ -202,12 +258,13 @@ Ordinary tests are offline and require neither private media nor a running Resol
 Live Resolve and Arabesques acceptance are opt-in; follow the guarded commands and human
 review checklist in the project documentation.
 
-### Opt-in live Resolve smoke test
+### Opt-in live Resolve Studio smoke test
 
 Open a disposable Resolve project whose Media Pool matches a private partial-video TOML. The
 TOML must supply only one or two logical takes, must leave at least one cut-list take omitted,
 and must use a new `timeline_name`. Set the expected identities explicitly; the test refuses
 to mutate when any identity differs and leaves the successfully verified timeline for review.
+This pytest harness connects from an external process and therefore requires Resolve Studio.
 
 ```bash
 export MULTI_CAM_SYNC_LIVE_CONFIG=/absolute/path/to/disposable-project.toml
@@ -226,7 +283,8 @@ confirmation and mutation authorization, it fails before constructing a producti
 ### Opt-in Arabesques acceptance
 
 Point a private TOML at the checked-in Arabesques cut list and configure only one or two takes
-with available video. Open the exact Resolve project and choose an unused timeline name:
+with available video. The pytest command below requires Resolve Studio external scripting.
+Open the exact Resolve project and choose an unused timeline name:
 
 ```bash
 export MULTI_CAM_SYNC_ARABESQUES_CONFIG=/absolute/path/to/arabesques-private.toml

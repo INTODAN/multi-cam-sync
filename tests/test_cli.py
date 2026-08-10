@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import subprocess
+import sys
 from io import StringIO
 from pathlib import Path
 from types import SimpleNamespace
@@ -60,6 +62,37 @@ class FakeService:
         if self.error:
             raise self.error
         return self.result
+
+
+def test_cli_rejects_subinterpreter_before_importing_native_dependencies() -> None:
+    script = """
+import sys
+import types
+
+interpreters = types.ModuleType("_interpreters")
+interpreters.get_current = lambda: 1
+interpreters.get_main = lambda: 0
+sys.modules["_interpreters"] = interpreters
+
+try:
+    import multi_cam_sync.cli
+except RuntimeError as error:
+    assert "cannot run inside a Python sub-interpreter" in str(error)
+    assert not any(
+        name == "numpy" or name.startswith(("numpy.", "scipy.", "dtw."))
+        for name in sys.modules
+    )
+else:
+    raise AssertionError("sub-interpreter import was not rejected")
+"""
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr
 
 
 def test_parser_requires_commands_and_report() -> None:

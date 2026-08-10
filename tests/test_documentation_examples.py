@@ -63,11 +63,18 @@ def test_readme_documents_commands_and_partial_video_safety_contract() -> None:
 
 def test_readme_exposes_setup_recovery_gates_and_project_documents() -> None:
     readme = README.read_text(encoding="utf-8")
+    normalized_readme = " ".join(readme.split())
 
     for required_text in (
         "ffmpeg -version",
         "ffprobe -version",
         "RESOLVE_SCRIPT_API",
+        "RESOLVE_SCRIPT_LIB",
+        'dvr_script.scriptapp("Resolve")',
+        "resolve.GetProjectManager()",
+        "project_manager.GetCurrentProject()",
+        "resolve.GetProductName()",
+        "resolve.GetVersionString()",
         "uv sync --all-groups",
         "uv run ruff format --check .",
         "uv run ruff check .",
@@ -81,3 +88,13 @@ def test_readme_exposes_setup_recovery_gates_and_project_documents() -> None:
         "plans/HUMAN_GUIDE.md",
     ):
         assert required_text in readme
+
+    for required_text in (
+        "Run this application from a normal terminal while DaVinci Resolve Studio is open",
+        "Set **External scripting using** to **Local**",
+        "It does not change the project",
+        "Run all three commands from the same externally configured terminal",
+    ):
+        assert required_text in normalized_readme
+
+    assert "from multi_cam_sync.cli import main" not in readme

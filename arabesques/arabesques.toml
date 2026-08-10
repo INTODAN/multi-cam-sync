@@ -1,0 +1,41 @@
+# Sanitized partial-video example. Copy this file and replace the selectors/paths.
+schema_version = 1
+
+[project]
+timeline_name = "Arabesques — Take 9"
+cuts_file = "Arabesques_composite_cuts.txt"
+
+[master]
+media_pool_folder = "Master"
+media_pool_name = "Arabesque final Master cor 160726 .wav"
+audio_path = "/home/itaielidan/Insync/itaielidan@gmail.com/Google Drive/Scores/Arabesques/Arabesque final Master cor 160726 .wav"
+
+# Only Take 8 A and Take 8 B are video-enabled. Every other take in the cut
+# list remains audio-only, with an intentional empty interval on Video Track 1.
+# [[sources]]
+# id = "take-8-a"
+# take = "Take 8 A"
+# media_pool_folder = "Video/Multicam"
+# media_pool_name = "Take 8 multicam"
+# audio_reference_path = "media/take-8-reference.mov"
+# source_start = "00:00:00.000"
+# source_end = "00:02:10.000"
+
+# [[sources]]
+# id = "take-8-b"
+# take = "Take 8 B"
+# media_pool_folder = "Video/Multicam"
+# media_pool_name = "Take 8 multicam"
+# audio_reference_path = "media/take-8-reference.mov"
+# source_start = "00:02:25.000"
+# source_end = "00:05:20.000"
+
+
+[[sources]]
+id = "take-9"
+take = "Take 9"
+media_pool_folder = "Master/multicmas"
+media_pool_name = "Take 9 Multicam"
+# audio_reference_path = "media/take-8-reference.mov"
+# source_start = "00:02:25.000"
+# source_end = "00:05:20.000"
