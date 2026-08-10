@@ -16,14 +16,22 @@ Provide deterministic analysis audio and metadata for the master and source occu
 Provide typed equivalents of:
 
 ```python
-class MediaProbe: ...       # path, duration, streams, native rate/channels, optional video fps
-class AudioRequest: ...     # path, audio stream, bounds, analysis rate/channels
-class AnalysisAudio: ...    # float32 mono samples, rate, absolute origin, duration, fingerprint
+class MediaProbe: ...  # path, duration, streams, native rate/channels, optional video fps
+
+
+class AudioRequest: ...  # path, audio stream, bounds, analysis rate/channels
+
+
+class AnalysisAudio: ...  # float32 mono samples, rate, absolute origin, duration, fingerprint
+
+
 class ContentFingerprint: ...
+
 
 class MediaReader(Protocol):
     def probe(self, path: Path) -> MediaProbe: ...
     def load_audio(self, request: AudioRequest) -> AnalysisAudio: ...
+
 
 class AnalysisCache: ...
 ```

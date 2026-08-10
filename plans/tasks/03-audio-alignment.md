@@ -17,9 +17,16 @@ Implement typed equivalents of:
 
 ```python
 class AlignmentSettings: ...
+
+
 class MatchDiagnostics: ...
+
+
 class CandidateMatch: ...
-class SegmentMatch: ...       # matched/unsafe, source ID, absolute source in/out
+
+
+class SegmentMatch: ...  # matched/unsafe, source ID, absolute source in/out
+
 
 class SegmentMatcher:
     def match(segment, master_audio, candidates, settings) -> SegmentMatch: ...

@@ -17,7 +17,11 @@ Expose project-owned types instead of raw Resolve objects:
 
 ```python
 class ResolveProjectSnapshot: ...  # project name, rates/start, timeline names, selected media
-class ResolvedMediaItem: ...       # media ID, selector, kind, file path, duration/rate metadata
+
+
+class ResolvedMediaItem: ...  # media ID, selector, kind, file path, duration/rate metadata
+
+
 class ResolveGateway(Protocol):
     def snapshot(self, selectors) -> ResolveProjectSnapshot: ...
     def build_timeline(self, plan: EditPlan) -> BuildResult: ...

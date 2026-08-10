@@ -98,6 +98,26 @@ For the final Arabesques acceptance run, you will review:
 - the labeling and color grouping;
 - that the multicam clips remain available for your later angle choices.
 
+### Running the guarded acceptance workflow
+
+The exact environment variables and commands are documented in the README under **Opt-in
+live Resolve smoke test** and **Opt-in Arabesques acceptance**. The live smoke test requires a
+separately named disposable Resolve project, a private partial-video configuration, an exact
+new timeline name, a persistent report path, `MULTI_CAM_SYNC_LIVE_CONFIRM_DISPOSABLE=1`, and
+`MULTI_CAM_SYNC_ALLOW_MUTATION=1`. The Arabesques run similarly requires explicit config,
+report, current-project, and new-timeline values plus mutation authorization.
+
+Both workflows perform validation, analysis, and report review before the one build call.
+They stop before mutation when the current Resolve project or configured timeline differs
+from the explicit environment values, when the target timeline already exists, when video
+coverage is not partial, or when a supplied match is unsafe. A successful run intentionally
+leaves the new verified timeline in Resolve and the JSON report at the requested path.
+
+After a successful Arabesques run, inspect all 29 colored master-audio segments and all 28
+markers. Scrub the beginning and end of every supplied-take video segment, confirm every
+omitted-take span is genuinely empty on Video Track 1, confirm camera audio is absent from the
+program tracks, record any manual offsets, and then unset `MULTI_CAM_SYNC_ALLOW_MUTATION`.
+
 ## Key choices and their consequences
 
 - **No `.etp` input in V1:** its cached alignment is based on good-microphone/score inputs, not the camera rough audio that must be located here. The proven algorithm is reused directly instead.

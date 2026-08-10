@@ -1,0 +1,70 @@
+[build-system]
+requires = ["uv_build>=0.11.19,<0.12"]
+build-backend = "uv_build"
+
+[project]
+name = "multi-cam-sync"
+version = "0.1.0"
+description = "Synchronize selected multicam recordings to a composite master audio track."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.12"
+dependencies = [
+    "dtw-python>=1.5.3",
+    "librosa>=0.11.0",
+    "numpy>=2.0.0",
+    "platformdirs>=4.3.0",
+    "pydantic>=2.11.0",
+    "soundfile>=0.13.1",
+]
+
+[project.scripts]
+multi-cam-sync = "multi_cam_sync.cli:main"
+
+[dependency-groups]
+dev = [
+    "pre-commit>=4.3.0",
+    "pytest>=8.4.0",
+    "pytest-cov>=7.0.0",
+    "ruff>=0.12.0",
+    "ty>=0.0.1a20",
+]
+
+[tool.uv]
+default-groups = ["dev"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+extend-exclude = [".cache", ".venv", "build", "dist", "reports"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
+
+[tool.ruff.lint]
+select = ["B", "E", "F", "I", "RUF", "SIM", "UP"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["B011"]
+
+[tool.ty.environment]
+python-version = "3.12"
+root = ["./src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = '--strict-config --strict-markers -m "not resolve_live and not arabesques_acceptance"'
+markers = [
+    "resolve_live: opt-in tests that require a running DaVinci Resolve instance",
+    "arabesques_acceptance: opt-in tests that require private Arabesques media",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["multi_cam_sync"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true

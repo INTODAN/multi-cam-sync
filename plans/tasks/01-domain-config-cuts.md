@@ -15,12 +15,23 @@ Turn a version-1 TOML file and the existing composite-cuts text format into a co
 Implement these project-owned interfaces; exact internal helpers are flexible:
 
 ```python
-class ProjectSpec: ...       # schema_version, config_path, project, master, optional sources
-class ProjectSettings: ...   # timeline_name, cuts_file
-class MasterSpec: ...        # exact Media Pool selector and optional audio_path
-class SourceSpec: ...        # id, take, selector, reference path/bounds, optional override
-class CutTransition: ...     # outgoing_take, incoming_take, master_time
-class MasterSegment: ...     # stable id/index, take, master_start, optional master_end
+class ProjectSpec: ...  # schema_version, config_path, project, master, optional sources
+
+
+class ProjectSettings: ...  # timeline_name, cuts_file
+
+
+class MasterSpec: ...  # exact Media Pool selector and optional audio_path
+
+
+class SourceSpec: ...  # id, take, selector, reference path/bounds, optional override
+
+
+class CutTransition: ...  # outgoing_take, incoming_take, master_time
+
+
+class MasterSegment: ...  # stable id/index, take, master_start, optional master_end
+
 
 def load_project_spec(path: Path) -> ProjectSpec: ...
 def parse_cut_list(text: str) -> tuple[CutTransition, ...]: ...

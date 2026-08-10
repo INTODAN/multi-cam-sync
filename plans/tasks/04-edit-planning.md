@@ -16,12 +16,23 @@ Convert validated master segments and the available accepted audio matches into 
 Define immutable models equivalent to:
 
 ```python
-class FrameRate: ...          # exact rational rate plus display value/drop-frame metadata
-class PlannedClip: ...        # stable ID, media ID, source start/end, record start/end, track/media type
-class PlannedSegment: ...     # master clip, video_status, optional video clip
-class PlannedGap: ...         # explicit no-video record range for an unsupplied take
+class FrameRate: ...  # exact rational rate plus display value/drop-frame metadata
+
+
+class PlannedClip: ...  # stable ID, media ID, source start/end, record start/end, track/media type
+
+
+class PlannedSegment: ...  # master clip, video_status, optional video clip
+
+
+class PlannedGap: ...  # explicit no-video record range for an unsupplied take
+
+
 class PlannedMarker: ...
-class EditPlan: ...           # segments, master/video clips, video gaps, markers, color map, warnings
+
+
+class EditPlan: ...  # segments, master/video clips, video gaps, markers, color map, warnings
+
 
 def seconds_to_frame(value: Decimal, rate: FrameRate) -> int: ...
 def create_edit_plan(inputs: PlanningInputs) -> EditPlan: ...

@@ -1,0 +1,151 @@
+from __future__ import annotations
+
+from io import StringIO
+from pathlib import Path
+from types import SimpleNamespace
+from typing import cast
+
+import pytest
+
+from multi_cam_sync.cli import build_parser, main
+from multi_cam_sync.reporting import AlignmentReport
+from multi_cam_sync.resolve import BuildResult, ResolveConnectionError, ResolveOperationError
+from multi_cam_sync.services import AnalysisOutcome, ServiceInputError, ValidationContext
+
+
+class FakeService:
+    def __init__(self) -> None:
+        self.validation = cast(
+            "ValidationContext",
+            SimpleNamespace(
+                enabled_take_keys=frozenset({"Take A"}),
+                segments=(
+                    SimpleNamespace(take_key="Take A"),
+                    SimpleNamespace(take_key="Take B"),
+                ),
+                snapshot=SimpleNamespace(project_name="Project"),
+                spec=SimpleNamespace(project=SimpleNamespace(timeline_name="Synced")),
+            ),
+        )
+        self.outcome = AnalysisOutcome(
+            report=cast(
+                "AlignmentReport",
+                SimpleNamespace(
+                    segments=(
+                        SimpleNamespace(video_status=SimpleNamespace(value="matched")),
+                        SimpleNamespace(video_status=SimpleNamespace(value="not_provided")),
+                    )
+                ),
+            ),
+            unsafe_count=0,
+        )
+        self.result = BuildResult("timeline-id", "Synced", 2, 1, 1)
+        self.calls: list[tuple[str, Path, object | None]] = []
+        self.error: Exception | None = None
+
+    def validate(self, config_path: Path) -> ValidationContext:
+        self.calls.append(("validate", config_path, None))
+        if self.error:
+            raise self.error
+        return self.validation
+
+    def analyze(self, config_path: Path) -> AnalysisOutcome:
+        self.calls.append(("analyze", config_path, None))
+        if self.error:
+            raise self.error
+        return self.outcome
+
+    def build(self, config_path: Path, report: AlignmentReport) -> BuildResult:
+        self.calls.append(("build", config_path, report))
+        if self.error:
+            raise self.error
+        return self.result
+
+
+def test_parser_requires_commands_and_report() -> None:
+    parser = build_parser()
+    with pytest.raises(SystemExit) as no_command:
+        parser.parse_args([])
+    assert no_command.value.code == 2
+    with pytest.raises(SystemExit) as no_report:
+        parser.parse_args(["analyze", "project.toml"])
+    assert no_report.value.code == 2
+
+
+def test_validate_is_read_only_summary() -> None:
+    service = FakeService()
+    output = StringIO()
+    assert main(["validate", "project.toml"], service=service, stdout=output) == 0
+    assert service.calls == [("validate", Path("project.toml"), None)]
+    assert "1 video-enabled, 1 audio-only" in output.getvalue()
+
+
+def test_analyze_writes_report_and_unsafe_returns_four(monkeypatch, tmp_path: Path) -> None:
+    service = FakeService()
+    written: list[object] = []
+    monkeypatch.setattr(
+        "multi_cam_sync.cli.write_report", lambda path, report: written.append((path, report))
+    )
+    path = tmp_path / "report.json"
+    assert main(["analyze", "project.toml", "--report", str(path)], service=service) == 0
+    assert written == [(path, service.outcome.report)]
+
+    unsafe = SimpleNamespace(
+        video_status=SimpleNamespace(value="unsafe"),
+        segment_id="segment-0001",
+        take="Take A",
+        blockers=("ambiguous",),
+    )
+    service.outcome = AnalysisOutcome(
+        report=cast("AlignmentReport", SimpleNamespace(segments=(unsafe,))),
+        unsafe_count=1,
+    )
+    assert main(["analyze", "project.toml", "--report", str(path)], service=service) == 4
+
+
+def test_build_reads_report_and_calls_gateway_once(monkeypatch, tmp_path: Path) -> None:
+    service = FakeService()
+    report = object()
+    monkeypatch.setattr("multi_cam_sync.cli.read_report", lambda path: report)
+    output = StringIO()
+    path = tmp_path / "report.json"
+    assert (
+        main(
+            ["build", "project.toml", "--report", str(path)],
+            service=service,
+            stdout=output,
+        )
+        == 0
+    )
+    assert service.calls == [("build", Path("project.toml"), report)]
+    assert "Built and verified" in output.getvalue()
+
+
+@pytest.mark.parametrize(
+    ("command", "error", "expected"),
+    [
+        ("validate", ServiceInputError("bad input"), 2),
+        ("validate", ResolveConnectionError("connect", "offline"), 3),
+        ("build", ResolveOperationError("append", "failed"), 5),
+        ("validate", RuntimeError("unexpected"), 1),
+    ],
+)
+def test_exit_code_mapping(command: str, error: Exception, expected: int, monkeypatch) -> None:
+    service = FakeService()
+    service.error = error
+    errors = StringIO()
+    if command == "build":
+        monkeypatch.setattr("multi_cam_sync.cli.read_report", lambda path: object())
+        argv = [command, "project.toml", "--report", "report.json"]
+    else:
+        argv = [command, "project.toml"]
+    assert main(argv, service=service, stderr=errors) == expected
+    assert "Traceback" not in errors.getvalue()
+
+
+def test_verbose_prints_traceback() -> None:
+    service = FakeService()
+    service.error = ServiceInputError("bad input")
+    errors = StringIO()
+    assert main(["--verbose", "validate", "project.toml"], service=service, stderr=errors) == 2
+    assert "Traceback" in errors.getvalue()
