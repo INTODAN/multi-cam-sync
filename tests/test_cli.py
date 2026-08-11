@@ -10,6 +10,7 @@ from typing import cast
 import pytest
 
 from multi_cam_sync.cli import build_parser, main
+from multi_cam_sync.progress import ProgressCallback, ProgressEvent
 from multi_cam_sync.reporting import AlignmentReport
 from multi_cam_sync.resolve import BuildResult, ResolveConnectionError, ResolveOperationError
 from multi_cam_sync.services import AnalysisOutcome, ServiceInputError, ValidationContext
@@ -51,14 +52,37 @@ class FakeService:
             raise self.error
         return self.validation
 
-    def analyze(self, config_path: Path) -> AnalysisOutcome:
+    def analyze(
+        self, config_path: Path, *, progress: ProgressCallback | None = None
+    ) -> AnalysisOutcome:
         self.calls.append(("analyze", config_path, None))
+        if progress is not None:
+            progress(ProgressEvent(0, 6, "Validating fake inputs"))
+            progress(
+                ProgressEvent(
+                    2,
+                    6,
+                    "Aligning fake segment",
+                    item_index=1,
+                    item_total=1,
+                )
+            )
+            progress(ProgressEvent(4, 6, "Fingerprinting fake inputs"))
         if self.error:
             raise self.error
         return self.outcome
 
-    def build(self, config_path: Path, report: AlignmentReport) -> BuildResult:
+    def build(
+        self,
+        config_path: Path,
+        report: AlignmentReport,
+        *,
+        progress: ProgressCallback | None = None,
+    ) -> BuildResult:
         self.calls.append(("build", config_path, report))
+        if progress is not None:
+            progress(ProgressEvent(1, 5, "Validating fake report"))
+            progress(ProgressEvent(4, 5, "Building fake timeline"))
         if self.error:
             raise self.error
         return self.result
@@ -116,12 +140,23 @@ def test_validate_is_read_only_summary() -> None:
 def test_analyze_writes_report_and_unsafe_returns_four(monkeypatch, tmp_path: Path) -> None:
     service = FakeService()
     written: list[object] = []
+    progress_output = StringIO()
     monkeypatch.setattr(
         "multi_cam_sync.cli.write_report", lambda path, report: written.append((path, report))
     )
     path = tmp_path / "report.json"
-    assert main(["analyze", "project.toml", "--report", str(path)], service=service) == 0
+    assert (
+        main(
+            ["analyze", "project.toml", "--report", str(path)],
+            service=service,
+            stderr=progress_output,
+        )
+        == 0
+    )
     assert written == [(path, service.outcome.report)]
+    assert "Analyze [1/6]   0% Validating fake inputs" in progress_output.getvalue()
+    assert "Analyze [3/6]  33% Aligning fake segment (1/1)" in progress_output.getvalue()
+    assert "Analyze [6/6] 100% Analysis complete" in progress_output.getvalue()
 
     unsafe = SimpleNamespace(
         video_status=SimpleNamespace(value="unsafe"),
@@ -141,17 +176,22 @@ def test_build_reads_report_and_calls_gateway_once(monkeypatch, tmp_path: Path) 
     report = object()
     monkeypatch.setattr("multi_cam_sync.cli.read_report", lambda path: report)
     output = StringIO()
+    progress_output = StringIO()
     path = tmp_path / "report.json"
     assert (
         main(
             ["build", "project.toml", "--report", str(path)],
             service=service,
             stdout=output,
+            stderr=progress_output,
         )
         == 0
     )
     assert service.calls == [("build", Path("project.toml"), report)]
     assert "Built and verified" in output.getvalue()
+    assert "Build [1/5]   0% Reading alignment report" in progress_output.getvalue()
+    assert "Build [5/5]  80% Building fake timeline" in progress_output.getvalue()
+    assert "Build [5/5] 100% Build complete" in progress_output.getvalue()
 
 
 @pytest.mark.parametrize(

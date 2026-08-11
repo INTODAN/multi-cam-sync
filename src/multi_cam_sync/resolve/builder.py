@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 from itertools import pairwise
 from typing import cast
 
@@ -65,6 +67,9 @@ SUPPORTED_MARKER_COLORS = frozenset(
         "Cream",
     }
 )
+
+_AUDIO_SOURCE_TIME_TOLERANCE_FRAMES = Decimal("0.0001")
+_MULTICAM_VIDEO_NAME_SUFFIX = re.compile(r" - Video [1-9][0-9]*")
 
 
 @dataclass(frozen=True, slots=True)
@@ -510,26 +515,49 @@ def _verify_marker(actual: Mapping[str, object], expected: _Marker, *, operation
 
 def _verify_item(item: RawTimelineItem, expected: _Clip, *, track_type: str) -> None:
     operation = f"verify {track_type} TimelineItem"
-    actual = (
+    actual_record = (
         _as_int(operation, _operation("TimelineItem.GetStart", item.GetStart, False)),
         _as_int(operation, _operation("TimelineItem.GetEnd", item.GetEnd, False)),
+    )
+    wanted_record = (expected.record_start, expected.record_end)
+    actual_source = (
         _as_int(
             operation, _operation("TimelineItem.GetSourceStartFrame", item.GetSourceStartFrame)
         ),
         _as_int(operation, _operation("TimelineItem.GetSourceEndFrame", item.GetSourceEndFrame)),
     )
-    wanted = (
-        expected.record_start,
-        expected.record_end,
-        expected.source_start,
-        expected.source_end,
-    )
-    if actual != wanted:
+    wanted_source = (expected.source_start, expected.source_end)
+    if actual_record != wanted_record:
         raise ResolveVerificationError(
-            operation, f"frame tuple expected {wanted!r}, got {actual!r}"
+            operation, f"record frame tuple expected {wanted_record!r}, got {actual_record!r}"
         )
-    if _require_text("TimelineItem.GetName", item.GetName) != expected.name:
-        raise ResolveVerificationError(operation, "item name differs from plan")
+    if track_type == "audio":
+        # Resolve stores audio edits at sample precision, but its integer source-frame
+        # getters inconsistently truncate exact boundaries. The same boundary can be
+        # reported as N by GetSourceEndFrame() and N-1 by GetSourceStartFrame(). Keep
+        # these getters as a coarse sanity check and verify the exact edit below via
+        # the source-time getters.
+        for actual_frame, wanted_frame in zip(actual_source, wanted_source, strict=True):
+            if actual_frame < 0 or actual_frame not in {wanted_frame - 1, wanted_frame}:
+                raise ResolveVerificationError(
+                    operation,
+                    f"coarse source frame tuple expected {wanted_source!r} with at most "
+                    f"one-frame truncation, got {actual_source!r}",
+                )
+    elif actual_source != wanted_source:
+        raise ResolveVerificationError(
+            operation, f"source frame tuple expected {wanted_source!r}, got {actual_source!r}"
+        )
+    actual_name = _require_text("TimelineItem.GetName", item.GetName)
+    resolve_multicam_name = (
+        track_type == "video"
+        and actual_name.startswith(expected.name)
+        and _MULTICAM_VIDEO_NAME_SUFFIX.fullmatch(actual_name[len(expected.name) :]) is not None
+    )
+    if actual_name != expected.name and not resolve_multicam_name:
+        raise ResolveVerificationError(
+            operation, f"item name expected {expected.name!r}, got {actual_name!r}"
+        )
     if _require_text("TimelineItem.GetClipColor", item.GetClipColor) != expected.color:
         raise ResolveVerificationError(operation, "item color differs from plan")
     track = _operation("TimelineItem.GetTrackTypeAndIndex", item.GetTrackTypeAndIndex)
@@ -562,6 +590,64 @@ def _verify_item(item: RawTimelineItem, expected: _Clip, *, track_type: str) -> 
         _verify_marker(markers[expected.marker.frame], expected.marker, operation=operation)
 
 
+def _source_time(operation: str, value: object) -> Decimal:
+    if isinstance(value, bool) or not isinstance(value, (int, float, Decimal)):
+        raise ResolveVerificationError(operation, f"expected finite source time, got {value!r}")
+    try:
+        result = Decimal(str(value))
+    except InvalidOperation as exc:
+        raise ResolveVerificationError(
+            operation, f"expected finite source time, got {value!r}"
+        ) from exc
+    if not result.is_finite():
+        raise ResolveVerificationError(operation, f"expected finite source time, got {value!r}")
+    return result
+
+
+def _verify_audio_source_times(
+    items: Sequence[RawTimelineItem], expected_clips: Sequence[_Clip], plan: _Plan
+) -> None:
+    """Verify exact audio boundaries despite Resolve's lossy integer frame getters."""
+
+    operation = "verify audio TimelineItem source times"
+    observed: list[tuple[Decimal, Decimal]] = []
+    for item in items:
+        observed.append(
+            (
+                _source_time(
+                    operation,
+                    _operation("TimelineItem.GetSourceStartTime", item.GetSourceStartTime),
+                ),
+                _source_time(
+                    operation,
+                    _operation("TimelineItem.GetSourceEndTime", item.GetSourceEndTime),
+                ),
+            )
+        )
+
+    origins: dict[str, Decimal] = {}
+    for expected, (actual_start, actual_end) in zip(expected_clips, observed, strict=True):
+        media = plan.expected_snapshot.media_by_id[expected.media_id]
+        rate = media.frame_rate
+        origin = origins.setdefault(
+            expected.media_id, actual_start - Decimal(expected.source_start) / rate
+        )
+        actual_frames = (
+            (actual_start - origin) * rate,
+            (actual_end - origin) * rate,
+        )
+        wanted_frames = (Decimal(expected.source_start), Decimal(expected.source_end))
+        for boundary, actual_frame, wanted_frame in zip(
+            ("start", "end"), actual_frames, wanted_frames, strict=True
+        ):
+            if abs(actual_frame - wanted_frame) > _AUDIO_SOURCE_TIME_TOLERANCE_FRAMES:
+                raise ResolveVerificationError(
+                    operation,
+                    f"{boundary} expected source frame {wanted_frame}, got {actual_frame} "
+                    "from source-time read-back",
+                )
+
+
 def verify_timeline(timeline: RawTimeline, plan: _Plan) -> None:
     """Read the built timeline back and compare every planned invariant."""
 
@@ -589,6 +675,7 @@ def verify_timeline(timeline: RawTimeline, plan: _Plan) -> None:
         )
     for item, expected in zip(audio_items, plan.audio, strict=True):
         _verify_item(item, expected, track_type="audio")
+    _verify_audio_source_times(audio_items, plan.audio, plan)
 
     if plan.video:
         if _require_int("Timeline.GetTrackCount(video)", timeline.GetTrackCount, "video") < 1:

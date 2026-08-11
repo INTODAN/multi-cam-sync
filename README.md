@@ -133,12 +133,12 @@ manual_offset_seconds = -1.25                    # optional numeric seconds
 | root | `schema_version` | integer | Required and must be `1`. |
 | `[project]` | `timeline_name` | nonblank string | Required; build refuses an existing timeline with this exact name. |
 | `[project]` | `cuts_file` | path string | Required; decimal cut-list path. |
-| `[master]` | `media_pool_folder` | nonblank string | Required exact folder path; use `/` between nested folders. |
+| `[master]` | `media_pool_folder` | nonblank string | Required exact folder path; use `/` between nested folders or `.` for the root bin. |
 | `[master]` | `media_pool_name` | nonblank string | Required exact master item name. |
 | `[master]` | `audio_path` | path string | Optional when the Media Pool item exposes a readable `File Path`. |
 | `[[sources]]` | `id` | nonblank string | Required and unique across source entries. |
 | `[[sources]]` | `take` | nonblank string | Required logical cut-list take; surrounding/repeated whitespace is normalized. |
-| `[[sources]]` | `media_pool_folder` | nonblank string | Required exact folder path. |
+| `[[sources]]` | `media_pool_folder` | nonblank string | Required exact folder path; use `.` for the root bin. |
 | `[[sources]]` | `media_pool_name` | nonblank string | Required exact video or multicam item name. |
 | `[[sources]]` | `audio_reference_path` | path string | Optional unless the Resolve item has no readable physical `File Path`. |
 | `[[sources]]` | `source_start` | timestamp or seconds | Optional nonnegative occurrence start; default `0`. |

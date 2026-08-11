@@ -45,6 +45,12 @@ from multi_cam_sync.planning import (
     VideoStatus,
     create_edit_plan,
 )
+from multi_cam_sync.progress import (
+    ANALYZE_STEP_COUNT,
+    BUILD_STEP_COUNT,
+    ProgressCallback,
+    ProgressEvent,
+)
 from multi_cam_sync.reporting import AlignmentReport, InputFileRecord, SegmentReport
 from multi_cam_sync.resolve import (
     BuildResult,
@@ -94,6 +100,11 @@ class ValidationContext:
 class AnalysisOutcome:
     report: AlignmentReport
     unsafe_count: int
+
+
+def _notify(progress: ProgressCallback | None, event: ProgressEvent) -> None:
+    if progress is not None:
+        progress(event)
 
 
 def _sha256_bytes(value: bytes) -> str:
@@ -379,7 +390,6 @@ class MultiCamSyncService:
         }
 
         master_probe = self._media_reader.probe(master_path)
-        segments = build_master_segments(cuts, master_probe.duration_seconds)
         master_resolve_duration = _media_duration(master_item)
         frame_tolerance = Decimal(2) / snapshot.timeline_frame_rate
         if master_probe.duration_seconds > master_resolve_duration + frame_tolerance:
@@ -387,6 +397,12 @@ class MultiCamSyncService:
                 "master audio file is longer than the selected Resolve master item "
                 "by more than two frames"
             )
+        if master_resolve_duration > master_probe.duration_seconds + frame_tolerance:
+            raise ServiceInputError(
+                "master audio file is shorter than the selected Resolve master item "
+                "by more than two frames"
+            )
+        segments = build_master_segments(cuts, master_resolve_duration)
 
         source_probes: dict[str, MediaProbe] = {}
         for source in spec.sources:
@@ -420,8 +436,14 @@ class MultiCamSyncService:
             source_probes=source_probes,
         )
 
-    def analyze(self, config_path: Path) -> AnalysisOutcome:
+    def analyze(
+        self, config_path: Path, *, progress: ProgressCallback | None = None
+    ) -> AnalysisOutcome:
         """Analyze supplied takes and return a complete report without mutating Resolve."""
+        _notify(
+            progress,
+            ProgressEvent(0, ANALYZE_STEP_COUNT, "Validating configuration and Resolve media"),
+        )
         context = self.validate(config_path)
         timeline_rate = FrameRate.parse(context.snapshot.timeline_frame_rate)
         settings = AlignmentSettings(
@@ -433,13 +455,26 @@ class MultiCamSyncService:
         enabled = context.enabled_take_keys
         master_audio = None
         if enabled:
+            _notify(progress, ProgressEvent(1, ANALYZE_STEP_COUNT, "Loading master analysis audio"))
             master_audio = self._media_reader.load_audio(AudioRequest(context.master_path))
+        else:
+            _notify(
+                progress,
+                ProgressEvent(1, ANALYZE_STEP_COUNT, "Skipping audio decode; no video is enabled"),
+            )
 
         sources_by_id = {source.id: source for source in context.spec.sources}
         loaded_candidates: dict[str, AlignmentCandidate] = {}
         segment_reports: list[SegmentReport] = []
         assignments: dict[str, VideoAssignment] = {}
         unsafe_count = 0
+        enabled_segment_count = sum(segment.take_key in enabled for segment in context.segments)
+        enabled_segment_index = 0
+        if not enabled_segment_count:
+            _notify(
+                progress,
+                ProgressEvent(2, ANALYZE_STEP_COUNT, "Skipping alignment; no video is enabled"),
+            )
 
         for segment in context.segments:
             assert segment.end_seconds is not None
@@ -459,6 +494,17 @@ class MultiCamSyncService:
                 )
                 continue
 
+            enabled_segment_index += 1
+            _notify(
+                progress,
+                ProgressEvent(
+                    2,
+                    ANALYZE_STEP_COUNT,
+                    f"Aligning {segment.id} ({segment.display_take})",
+                    item_index=enabled_segment_index,
+                    item_total=enabled_segment_count,
+                ),
+            )
             candidates: list[AlignmentCandidate] = []
             for source in sources:
                 candidate = loaded_candidates.get(source.id)
@@ -541,10 +587,15 @@ class MultiCamSyncService:
                 )
             )
 
+        _notify(
+            progress,
+            ProgressEvent(3, ANALYZE_STEP_COUNT, "Preparing alignment results and edit plan"),
+        )
         plan: EditPlan | None = None
         if unsafe_count == 0:
             plan = create_edit_plan(_planning_inputs(context, assignments))
 
+        _notify(progress, ProgressEvent(4, ANALYZE_STEP_COUNT, "Fingerprinting input media"))
         files = [
             InputFileRecord(
                 role="master",
@@ -575,8 +626,18 @@ class MultiCamSyncService:
         )
         return AnalysisOutcome(report=report, unsafe_count=unsafe_count)
 
-    def build(self, config_path: Path, report: AlignmentReport) -> BuildResult:
+    def build(
+        self,
+        config_path: Path,
+        report: AlignmentReport,
+        *,
+        progress: ProgressCallback | None = None,
+    ) -> BuildResult:
         """Reject every stale dimension before calling the one mutation gateway."""
+        _notify(
+            progress,
+            ProgressEvent(1, BUILD_STEP_COUNT, "Validating report and current Resolve project"),
+        )
         if report.report_schema_version != 1:
             raise ServiceInputError("unsupported report schema")
         if report.tool_version != __version__:
@@ -601,6 +662,10 @@ class MultiCamSyncService:
                 "project, timelines, settings, or selected media changed after analysis",
             )
 
+        _notify(
+            progress,
+            ProgressEvent(2, BUILD_STEP_COUNT, "Checking input fingerprints and settings"),
+        )
         current_files = [InputFileRecord("master", None, fingerprint_file(current.master_path))]
         current_files.extend(
             InputFileRecord(
@@ -620,8 +685,16 @@ class MultiCamSyncService:
         if dict(report.alignment_settings) != expected_settings:
             raise ServiceInputError("alignment settings differ from the report; analyze again")
 
+        _notify(
+            progress,
+            ProgressEvent(3, BUILD_STEP_COUNT, "Reproducing the reviewed edit plan"),
+        )
         reproduced_plan = _recreate_report_plan(current, report)
         if reproduced_plan != report.plan:
             raise ServiceInputError("embedded edit plan differs from current inputs and matches")
 
+        _notify(
+            progress,
+            ProgressEvent(4, BUILD_STEP_COUNT, "Building and verifying the Resolve timeline"),
+        )
         return self._gateway.build_timeline(cast("EditPlanLike", report.plan))

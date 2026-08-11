@@ -20,6 +20,8 @@ class MediaSelector:
     def __post_init__(self) -> None:
         if not self.folder or any(not component.strip() for component in self.folder):
             raise ValueError("media selector folder must contain non-empty components")
+        if "." in self.folder and self.folder != (".",):
+            raise ValueError("media selector root marker '.' must be the entire folder path")
         if not self.name.strip():
             raise ValueError("media selector name must not be empty")
         if self.kind not in {"master", "video"}:
@@ -245,6 +247,10 @@ class RawTimelineItem(Protocol):
     def GetSourceStartFrame(self) -> int: ...
 
     def GetSourceEndFrame(self) -> int: ...
+
+    def GetSourceStartTime(self) -> float: ...
+
+    def GetSourceEndTime(self) -> float: ...
 
     def GetMediaPoolItem(self) -> RawMediaPoolItem: ...
 

@@ -110,7 +110,14 @@ def _plan_video_clip(
     duration = segment.end_seconds - segment.start_seconds
     expected_out = source_in + duration
     source_start = seconds_to_frame(source_in, media.frame_rate)
-    source_end = seconds_to_frame(expected_out, media.frame_rate)
+    record_duration = record_end - record_start
+    record_duration_seconds = (
+        Decimal(record_duration)
+        * Decimal(inputs.timeline_rate.denominator)
+        / Decimal(inputs.timeline_rate.numerator)
+    )
+    source_duration = seconds_to_frame(record_duration_seconds, media.frame_rate)
+    source_end = source_start + source_duration
     if source_start < 0 or source_end <= source_start:
         raise PlanningError(f"segment {segment.id} has invalid source frame range")
     if source_end > seconds_to_frame(media.duration_seconds, media.frame_rate):

@@ -16,6 +16,13 @@ from multi_cam_sync._runtime import MAIN_INTERPRETER_RUNTIME  # noqa: F401
 from multi_cam_sync.alignment import AlignmentError
 from multi_cam_sync.domain import DomainError
 from multi_cam_sync.media import MediaError
+from multi_cam_sync.progress import (
+    ANALYZE_STEP_COUNT,
+    BUILD_STEP_COUNT,
+    ProgressCallback,
+    ProgressDisplay,
+    ProgressEvent,
+)
 from multi_cam_sync.reporting import AlignmentReport, ReportError, read_report, write_report
 from multi_cam_sync.resolve import (
     BuildResult,
@@ -34,9 +41,17 @@ from multi_cam_sync.services import (
 class ServiceLike(Protocol):
     def validate(self, config_path: Path) -> ValidationContext: ...
 
-    def analyze(self, config_path: Path) -> AnalysisOutcome: ...
+    def analyze(
+        self, config_path: Path, *, progress: ProgressCallback | None = None
+    ) -> AnalysisOutcome: ...
 
-    def build(self, config_path: Path, report: AlignmentReport) -> BuildResult: ...
+    def build(
+        self,
+        config_path: Path,
+        report: AlignmentReport,
+        *,
+        progress: ProgressCallback | None = None,
+    ) -> BuildResult: ...
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -106,6 +121,7 @@ def main(
     parser = build_parser()
     args = parser.parse_args(argv)
     active_service = service or MultiCamSyncService.production()
+    active_progress: ProgressDisplay | None = None
 
     try:
         if args.command == "validate":
@@ -113,13 +129,27 @@ def main(
             _validation_summary(context, output)
             return 0
         if args.command == "analyze":
-            outcome = active_service.analyze(args.config)
+            active_progress = ProgressDisplay("Analyze", errors)
+            outcome = active_service.analyze(args.config, progress=active_progress.update)
+            active_progress.update(
+                ProgressEvent(
+                    ANALYZE_STEP_COUNT - 1, ANALYZE_STEP_COUNT, "Writing alignment report"
+                )
+            )
             write_report(args.report, outcome.report)
+            active_progress.finish("Analysis complete")
             _analysis_summary(outcome, args.report, output)
             return 4 if outcome.unsafe_count else 0
         if args.command == "build":
+            active_progress = ProgressDisplay("Build", errors)
+            active_progress.update(ProgressEvent(0, BUILD_STEP_COUNT, "Reading alignment report"))
             report = read_report(args.report)
-            result = active_service.build(args.config, report)
+            result = active_service.build(
+                args.config,
+                report,
+                progress=active_progress.update,
+            )
+            active_progress.finish("Build complete")
             print(
                 f"Built and verified timeline {result.timeline_name!r}: "
                 f"{result.audio_item_count} audio clips, {result.video_item_count} video clips, "
@@ -129,12 +159,16 @@ def main(
             return 0
         parser.error(f"unknown command: {args.command}")
     except (DomainError, ServiceInputError, MediaError, AlignmentError, ReportError) as error:
+        if active_progress is not None:
+            active_progress.fail()
         if args.verbose:
             traceback.print_exc(file=errors)
         else:
             print(f"Error: {error}", file=errors)
         return 2
     except ResolveError as error:
+        if active_progress is not None:
+            active_progress.fail()
         if args.verbose:
             traceback.print_exc(file=errors)
         else:
@@ -145,6 +179,8 @@ def main(
             return 5
         return 3
     except Exception as error:  # pragma: no cover - defensive top-level boundary
+        if active_progress is not None:
+            active_progress.fail()
         if args.verbose:
             traceback.print_exc(file=errors)
         else:

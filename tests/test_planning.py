@@ -169,6 +169,54 @@ def test_master_boundaries_never_accumulate_gaps() -> None:
         assert left.record_end_frame == right.record_start_frame
 
 
+@pytest.mark.parametrize(("source_rate", "expected_duration"), [("24", 119), ("30", 149)])
+def test_video_source_duration_reproduces_independently_rounded_record_span(
+    source_rate: str, expected_duration: int
+) -> None:
+    segments = (
+        SegmentInput(
+            "segment-0001",
+            0,
+            "Take B",
+            "take b",
+            Decimal(0),
+            Decimal("50.478"),
+        ),
+        SegmentInput(
+            "segment-0002",
+            1,
+            "Take A",
+            "take a",
+            Decimal("50.478"),
+            Decimal("55.412"),
+        ),
+    )
+    source_in = Decimal(1322) / Decimal(24)
+    assignment = VideoAssignment(
+        status=VideoStatus.MATCHED,
+        source_id="source-a",
+        media=_media("video-a", duration="100", rate=source_rate),
+        source_in_seconds=source_in,
+        predicted_source_out_seconds=source_in + Decimal("4.934"),
+    )
+    inputs = replace(
+        _inputs(),
+        timeline_rate=FrameRate.parse("24"),
+        master_media=_media("master", duration="55.412", rate="24"),
+        segments=segments,
+        enabled_take_keys=frozenset({"take a"}),
+        assignments={"segment-0002": assignment},
+    )
+
+    plan = create_edit_plan(inputs)
+    video = plan.video_clips[0]
+
+    assert video.record_end_frame - video.record_start_frame == 119
+    assert video.source_end_frame - video.source_start_frame == expected_duration
+    source_duration_seconds = Decimal(expected_duration) / FrameRate.parse(source_rate).decimal
+    assert seconds_to_frame(source_duration_seconds, inputs.timeline_rate) == 119
+
+
 def test_validator_detects_video_in_declared_gap() -> None:
     plan = create_edit_plan(_inputs())
     broken_segment = replace(

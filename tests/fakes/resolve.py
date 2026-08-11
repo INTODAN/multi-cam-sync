@@ -123,7 +123,10 @@ class FakeTimelineItem:
 
     def GetName(self) -> str:
         self.events.append(("TimelineItem.GetName", self.track_type))
-        return self.name
+        return cast(
+            "str",
+            _result(self.failures, f"TimelineItem.GetName.{self.track_type}", self.name),
+        )
 
     def GetStart(self, subframe_precision: bool = False) -> int:
         self.events.append(("TimelineItem.GetStart", self.track_type, subframe_precision))
@@ -135,11 +138,41 @@ class FakeTimelineItem:
 
     def GetSourceStartFrame(self) -> int:
         self.events.append(("TimelineItem.GetSourceStartFrame", self.track_type))
-        return self.source_start
+        return cast(
+            "int",
+            _result(
+                self.failures,
+                f"TimelineItem.GetSourceStartFrame.{self.track_type}",
+                self.source_start,
+            ),
+        )
 
     def GetSourceEndFrame(self) -> int:
         self.events.append(("TimelineItem.GetSourceEndFrame", self.track_type))
-        return self.source_end
+        return cast(
+            "int",
+            _result(
+                self.failures,
+                f"TimelineItem.GetSourceEndFrame.{self.track_type}",
+                self.source_end,
+            ),
+        )
+
+    def GetSourceStartTime(self) -> object:
+        self.events.append(("TimelineItem.GetSourceStartTime", self.track_type))
+        return _result(
+            self.failures,
+            f"TimelineItem.GetSourceStartTime.{self.track_type}",
+            self.source_start / 24,
+        )
+
+    def GetSourceEndTime(self) -> object:
+        self.events.append(("TimelineItem.GetSourceEndTime", self.track_type))
+        return _result(
+            self.failures,
+            f"TimelineItem.GetSourceEndTime.{self.track_type}",
+            self.source_end / 24,
+        )
 
     def GetMediaPoolItem(self) -> FakeMediaItem:
         self.events.append(("TimelineItem.GetMediaPoolItem", self.track_type))

@@ -2,11 +2,11 @@
 schema_version = 1
 
 [project]
-timeline_name = "Arabesques — Take 9"
+timeline_name = "Arabesques — Take 9 + 1"
 cuts_file = "Arabesques_composite_cuts.txt"
 
 [master]
-media_pool_folder = "Master"
+media_pool_folder = "."
 media_pool_name = "Arabesque final Master cor 160726 .wav"
 audio_path = "/home/itaielidan/Insync/itaielidan@gmail.com/Google Drive/Scores/Arabesques/Arabesque final Master cor 160726 .wav"
 
@@ -34,8 +34,13 @@ audio_path = "/home/itaielidan/Insync/itaielidan@gmail.com/Google Drive/Scores/A
 [[sources]]
 id = "take-9"
 take = "Take 9"
-media_pool_folder = "Master/multicmas"
+media_pool_folder = "multicams"
 media_pool_name = "Take 9 Multicam"
-# audio_reference_path = "media/take-8-reference.mov"
-# source_start = "00:02:25.000"
-# source_end = "00:05:20.000"
+audio_reference_path = "/home/itaielidan/Insync/itaielidan@gmail.com/Google Drive/DaVinciResolve/arabesques/Take 9 Multicam reference.wav"
+
+[[sources]]
+id = "take-1"
+take = "Take 1"
+media_pool_folder = "multicams"
+media_pool_name = "Take 1 multicam"
+audio_reference_path = "/home/itaielidan/Insync/itaielidan@gmail.com/Google Drive/DaVinciResolve/arabesques/Take 1 Multicam reference.wav"

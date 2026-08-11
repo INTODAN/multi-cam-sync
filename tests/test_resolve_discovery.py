@@ -39,6 +39,24 @@ def test_snapshot_uses_exact_nested_paths_and_reuses_repeated_selector() -> None
     assert fake.events.count(("MediaPoolItem.GetClipProperty", "video-id", None)) == 1
 
 
+def test_explicit_root_folder_selects_only_root_clips() -> None:
+    fake = make_resolve_fake()
+    masters = fake.media_pool.root.folders[0]
+    masters.clips.remove(fake.master)
+    fake.media_pool.root.clips.append(fake.master)
+    root_master = MediaSelector.from_folder(".", "Master.wav", "master")
+
+    snapshot, raw = capture_snapshot(fake.session, [root_master])
+
+    assert snapshot.media[0].selector == root_master
+    assert raw == {"master-id": fake.master}
+
+
+def test_root_folder_marker_cannot_be_combined_with_child_components() -> None:
+    with pytest.raises(ValueError, match="root marker"):
+        MediaSelector.from_folder("./Masters", "Master.wav", "master")
+
+
 def test_selector_requires_exact_item_name() -> None:
     fake = make_resolve_fake()
 
@@ -81,8 +99,26 @@ def test_virtual_multicam_without_file_path_is_valid_when_metadata_is_complete()
     assert snapshot.media[0].duration_frames == 2000
 
 
-@pytest.mark.parametrize("value", ["", "0", "nan", "not-a-rate", "1/0"])
-def test_invalid_project_or_clip_rates_are_rejected(value: str) -> None:
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (24, Decimal("24")),
+        (24.0, Decimal("24.0")),
+        (Decimal("23.976"), Decimal("23.976")),
+        ("24000/1001", Decimal("24000") / Decimal("1001")),
+    ],
+)
+def test_project_or_clip_rates_accept_resolve_numeric_shapes(
+    value: object, expected: Decimal
+) -> None:
+    assert parse_resolve_rate(value, operation="test rate") == expected
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["", "0", "nan", "not-a-rate", "1/0", 0, 0.0, float("nan"), False, None],
+)
+def test_invalid_project_or_clip_rates_are_rejected(value: object) -> None:
     with pytest.raises(ResolveOperationError, match="frame rate"):
         parse_resolve_rate(value, operation="test rate")
 

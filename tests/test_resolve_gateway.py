@@ -347,6 +347,8 @@ def test_all_plan_preflight_failures_have_zero_mutation(change: str, match: str)
         ("TimelineItem.AddMarker", False),
         ("Timeline.AddMarker", None),
         ("Timeline.GetMarkers", False),
+        ("TimelineItem.GetSourceStartTime.audio", False),
+        ("TimelineItem.GetSourceEndTime.audio", None),
     ],
 )
 def test_each_post_creation_falsey_result_rolls_back_new_timeline_only(
@@ -418,8 +420,52 @@ def test_readback_rejects_video_overlap() -> None:
 
     fake.failures["Timeline.GetItemListInTrack.video"] = malformed_items
 
-    with pytest.raises(ResolveBuildError, match="frame tuple expected"):
+    with pytest.raises(ResolveBuildError, match="record frame tuple expected"):
         gateway(fake).build_timeline(plan)
+
+
+def test_audio_source_frame_getters_may_truncate_exact_times_by_one_frame() -> None:
+    fake = make_resolve_fake()
+    plan = make_plan(fake)
+    source_starts = iter((0, 49))
+    fake.failures["TimelineItem.GetSourceStartFrame.audio"] = lambda: next(source_starts)
+
+    result = gateway(fake).build_timeline(plan)
+
+    assert result.verified is True
+    assert not fake.media_pool.deleted
+
+
+def test_audio_source_time_readback_rejects_a_real_one_frame_shift() -> None:
+    fake = make_resolve_fake()
+    plan = make_plan(fake)
+    source_start_times = iter((0.0, 49 / 24))
+    fake.failures["TimelineItem.GetSourceStartTime.audio"] = lambda: next(source_start_times)
+
+    with pytest.raises(ResolveBuildError, match="start expected source frame 50"):
+        gateway(fake).build_timeline(plan)
+
+    assert fake.media_pool.deleted
+
+
+def test_multicam_video_name_keeps_exact_label_with_resolve_track_suffix() -> None:
+    fake = make_resolve_fake(failures={"TimelineItem.GetName.video": "Take 1 video - 01 - Video 2"})
+    plan = make_plan(fake)
+
+    result = gateway(fake).build_timeline(plan)
+
+    assert result.verified is True
+    assert not fake.media_pool.deleted
+
+
+def test_multicam_video_name_rejects_a_different_base_label() -> None:
+    fake = make_resolve_fake(failures={"TimelineItem.GetName.video": "Wrong - Video 2"})
+    plan = make_plan(fake)
+
+    with pytest.raises(ResolveBuildError, match="item name expected"):
+        gateway(fake).build_timeline(plan)
+
+    assert fake.media_pool.deleted
 
 
 def test_call_order_preflights_before_creation_and_verifies_after_markers() -> None:

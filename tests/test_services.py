@@ -29,6 +29,7 @@ from multi_cam_sync.media import (
     fingerprint_file,
 )
 from multi_cam_sync.planning import VideoStatus
+from multi_cam_sync.progress import ProgressEvent
 from multi_cam_sync.reporting import AlignmentReport, read_report, write_report
 from multi_cam_sync.resolve import (
     BuildResult,
@@ -217,7 +218,8 @@ def test_validate_and_partial_analysis_have_zero_resolve_mutations(tmp_path: Pat
     assert reader.audio_requests == []
     assert gateway.build_calls == []
 
-    outcome = service.analyze(config)
+    progress: list[ProgressEvent] = []
+    outcome = service.analyze(config, progress=progress.append)
     assert outcome.unsafe_count == 0
     assert [segment.video_status for segment in outcome.report.segments] == [
         VideoStatus.MATCHED,
@@ -230,6 +232,10 @@ def test_validate_and_partial_analysis_have_zero_resolve_mutations(tmp_path: Pat
     ]
     assert len(reader.audio_requests) == 2  # master once, shared source occurrence once
     assert gateway.build_calls == []
+    aligned = [event for event in progress if event.item_index is not None]
+    assert [(event.item_index, event.item_total) for event in aligned] == [(1, 2), (2, 2)]
+    assert progress[0].message == "Validating configuration and Resolve media"
+    assert progress[-1].message == "Fingerprinting input media"
 
     plan = outcome.report.plan
     assert plan is not None
@@ -241,6 +247,27 @@ def test_validate_and_partial_analysis_have_zero_resolve_mutations(tmp_path: Pat
         left.record_end_frame == right.record_start_frame
         for left, right in zip(plan.audio_clips, plan.audio_clips[1:], strict=False)
     )
+
+
+def test_resolve_master_end_is_authoritative_within_probe_tolerance(tmp_path: Path) -> None:
+    config, master_path, _, _, reader, _, service = _system(tmp_path)
+    reader.durations[master_path.resolve()] = Decimal("6.03")
+
+    outcome = service.analyze(config)
+
+    assert outcome.report.segments[-1].master_end_seconds == Decimal(6)
+    assert outcome.report.plan is not None
+    assert outcome.report.plan.audio_clips[-1].source_end_frame == 144
+
+
+def test_master_reference_shorter_than_resolve_item_is_rejected(tmp_path: Path) -> None:
+    config, master_path, _, gateway, reader, _, service = _system(tmp_path)
+    reader.durations[master_path.resolve()] = Decimal("5.9")
+
+    with pytest.raises(ServiceInputError, match=r"shorter.*by more than two frames"):
+        service.validate(config)
+
+    assert gateway.build_calls == []
 
 
 def test_zero_sources_skip_all_audio_decode_and_matching(tmp_path: Path) -> None:
@@ -273,11 +300,13 @@ def test_safe_report_builds_exactly_once(tmp_path: Path) -> None:
     write_report(report_path, report)
     reloaded = read_report(report_path)
 
-    result = service.build(config, reloaded)
+    progress: list[ProgressEvent] = []
+    result = service.build(config, reloaded, progress=progress.append)
 
     assert result.verified
     assert len(gateway.build_calls) == 1
     assert gateway.build_calls[0] is reloaded.plan
+    assert [event.completed for event in progress] == [1, 2, 3, 4]
 
 
 def test_unsafe_requested_take_blocks_plan_and_build(tmp_path: Path) -> None:

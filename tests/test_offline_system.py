@@ -84,6 +84,7 @@ def _system(
     )
     reader = CachingMediaReader(backend, AnalysisCache(tmp_path / "analysis cache"))
     fake = make_resolve_fake()
+    fake.master.properties["Frames"] = "360"
     gateway = DaVinciResolveGateway(connector=lambda: fake.session)
     service = MultiCamSyncService(
         gateway=cast("ResolveGateway", gateway),

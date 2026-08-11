@@ -42,9 +42,11 @@ def _nonempty_text(operation: str, value: object) -> str:
 def parse_resolve_rate(value: object, *, operation: str) -> Decimal:
     """Parse integer, decimal, or rational Resolve frame-rate values exactly."""
 
-    if not isinstance(value, str) or not value.strip():
+    if isinstance(value, bool) or not isinstance(value, (str, int, float, Decimal)):
         raise ResolveOperationError(operation, f"invalid frame rate {value!r}")
-    text = value.strip().upper().removesuffix(" DF").strip()
+    text = str(value).strip().upper().removesuffix(" DF").strip()
+    if not text:
+        raise ResolveOperationError(operation, f"invalid frame rate {value!r}")
     try:
         if "/" in text:
             numerator, denominator = text.split("/", 1)
@@ -200,11 +202,12 @@ def resolve_selector(
 
     folder = root
     traversed: tuple[str, ...] = ()
-    for component in selector.folder:
+    components = () if selector.folder == (".",) else selector.folder
+    for component in components:
         folder = _exact_child(folder, component, parent_path=traversed)
         traversed += (component,)
 
-    operation = f"Folder.GetClipList({'/'.join(selector.folder)})"
+    operation = f"Folder.GetClipList({'/'.join(components) or '<root>'})"
     clips = _list(operation, _call(operation, folder.GetClipList))
     matches: list[RawMediaPoolItem] = []
     for clip in clips:
