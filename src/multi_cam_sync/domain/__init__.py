@@ -7,6 +7,8 @@ from multi_cam_sync.domain.models import (
     MasterSpec,
     ProjectSettings,
     ProjectSpec,
+    SegmentManualOffset,
+    SegmentSearchRange,
     SourceSpec,
 )
 
@@ -19,6 +21,8 @@ __all__ = [
     "MasterSpec",
     "ProjectSettings",
     "ProjectSpec",
+    "SegmentManualOffset",
+    "SegmentSearchRange",
     "SourceSpec",
     "TimeValueError",
 ]

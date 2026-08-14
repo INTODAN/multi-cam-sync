@@ -33,8 +33,19 @@ def test_sanitized_partial_video_example_parses_from_a_private_copy(tmp_path: Pa
     assert [source.take for source in spec.sources] == ["Take 8 A", "Take 8 B"]
     assert spec.sources[0].media_pool_name == spec.sources[1].media_pool_name
     assert spec.sources[0].audio_reference_path == spec.sources[1].audio_reference_path
+    assert (
+        spec.sources[0].additional_audio_reference_paths
+        == spec.sources[1].additional_audio_reference_paths
+    )
+    assert spec.sources[0].additional_audio_reference_paths == (
+        (copied_config.parent / "media/take-8-camera-b-reference.mov").resolve(),
+    )
     assert spec.sources[0].source_end == Decimal(130)
     assert spec.sources[1].source_start == Decimal(145)
+    search_range = spec.sources[1].search_range_for("segment-0014")
+    assert search_range is not None
+    assert search_range.source_start == Decimal(297)
+    assert search_range.source_end == Decimal(303)
     assert set(spec.sources_by_take) == {"Take 8 A", "Take 8 B"}
 
 
@@ -57,6 +68,7 @@ def test_readme_documents_commands_and_partial_video_safety_contract() -> None:
         "supplied take with a failed or ambiguous match",
         "build is blocked",
         "master audio continues on Audio Track 1",
+        "sources.segment_manual_offsets",
     ):
         assert required_text in normalized_readme
 

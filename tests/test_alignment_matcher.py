@@ -237,6 +237,13 @@ def test_explicit_bounds_select_two_logical_occurrences_in_one_physical_recordin
 
 def test_failure_keeps_candidate_diagnostics_without_inventing_not_provided() -> None:
     master, source = fixture_audio()
+    candidate = AlignmentCandidate(
+        "camera",
+        source,
+        source_start_seconds=Decimal(1),
+        source_end_seconds=Decimal(4),
+        audio_reference_id="additional-2",
+    )
 
     def failure(*args: object) -> DtwPath:
         raise ValueError(args)
@@ -244,7 +251,7 @@ def test_failure_keeps_candidate_diagnostics_without_inventing_not_provided() ->
     result = SegmentMatcher(feature_extractor=identity_features, path_aligner=failure).match(
         SegmentRequest("seg", "Take 5", Decimal(1), Decimal(3)),
         master,
-        [AlignmentCandidate("camera", source)],
+        [candidate],
         settings(),
     )
 
@@ -254,6 +261,9 @@ def test_failure_keeps_candidate_diagnostics_without_inventing_not_provided() ->
     assert BlockerCode.DTW_FAILED in result.blockers
     assert BlockerCode.NO_VALID_CANDIDATE in result.blockers
     assert len(result.candidates) == 1
+    assert result.candidates[0].search_start_seconds == candidate.start_seconds
+    assert result.candidates[0].search_end_seconds == candidate.end_seconds
+    assert result.candidates[0].audio_reference_id == "additional-2"
     assert not hasattr(MatchStatus, "NOT_PROVIDED")
 
 

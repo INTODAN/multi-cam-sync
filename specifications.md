@@ -66,6 +66,9 @@ media_pool_folder = "Multicam"
 media_pool_name = "Take 8 multicam"
 # Required for virtual multicam/compound items that have no readable File Path.
 audio_reference_path = "/media/arabesques/camera-a/take-8.mov"
+additional_audio_reference_paths = [
+    "/media/arabesques/camera-b/take-8.mov",
+]
 source_start = "00:00:00.000"
 source_end = "00:02:10.000"
 
@@ -75,15 +78,41 @@ take = "Take 8 B"
 media_pool_folder = "Multicam"
 media_pool_name = "Take 8 multicam"
 audio_reference_path = "/media/arabesques/camera-a/take-8.mov"
+additional_audio_reference_paths = [
+    "/media/arabesques/camera-b/take-8.mov",
+]
 source_start = "00:02:25.000"
 source_end = "00:05:20.000"
+
+[[sources.segment_search_ranges]]
+segment_id = "segment-0014"
+source_start = "00:04:57.000"
+source_end = "00:05:03.000"
+
+[[sources.segment_manual_offsets]]
+segment_id = "segment-0018"
+manual_offset_seconds = 517.8726761706474
 ```
 
 `id` is unique, while several source entries may share a take label or the same Media Pool item. `source_start` and `source_end` describe the occurrence within the physical recording and are the supported solution for a file containing multiple takes separated by a break. The program never infers take identity from filenames.
 
+Optional `additional_audio_reference_paths` are ordered microphone fallbacks for the same
+physical-source timeline. The primary reference is always matched first. Only an unsafe
+complete segment match advances to the next reference, and matching stops at the first safe
+result. Every fallback is probed and fingerprinted before analysis, must have exactly the
+primary reference's whole-file duration, and receives the same occurrence and per-segment
+bounds. Decoding remains lazy. Reports retain candidates from every attempted reference and
+identify them as `primary`, `additional-1`, and so on. Sources using the source-wide
+`manual_offset_seconds` cannot declare additional references. Segment-specific manual offsets
+may coexist with fallbacks because every other segment still matches automatically.
+
+An optional `[[sources.segment_search_ranges]]` entry narrows one source candidate for one stable master-segment ID. Its bounds use the same absolute physical-source timeline as the parent bounds and must remain inside the parent source occurrence; its segment must carry the parent source's logical take, and a source may declare at most one range per segment. Segments without an override search the full parent occurrence. Effective search bounds are included with candidate diagnostics in the report. Segment search ranges cannot be combined with source-wide `manual_offset_seconds`, or with a segment manual offset for the same segment, because manual matching bypasses DTW.
+
+An optional `[[sources.segment_manual_offsets]]` entry applies `source time = master time + manual offset` to one stable segment ID only. The segment must carry the parent source's take, IDs must be unique within the source, and `manual_offset_seconds` must be an unquoted finite TOML number. Matching for that source and segment is labeled `manual` and bypasses DTW and microphone fallback attempts; every other segment remains automatic and may use its configured search range and fallback references. Segment-specific offsets cannot be combined with source-wide `manual_offset_seconds`.
+
 The `[[sources]]` list is a partial-video selection, not a completeness requirement. A logical take with one or more source entries is **video-enabled**, and the program must create video for every master segment carrying that take label. A logical take with no source entry is **audio-only**, which is valid and produces no video item, placeholder, title, or black generator over those segments. Every configured source's take label must occur in the cut-derived master segments; an unused source is rejected as a likely typo.
 
-Optional per-source `manual_offset_seconds` bypasses automatic matching for recovery and testing. It means `source time = master time + manual offset` within that logical occurrence and is always called out in the report.
+Optional source-wide `manual_offset_seconds` bypasses automatic matching for every eligible segment of that source. It means `source time = master time + manual offset` within that logical occurrence and is always called out in the report. Use a segment-specific manual offset when other segments of the same take should remain automatic.
 
 Relative filesystem paths are resolved relative to the TOML file. `sources` may be empty. Missing source entries are reported as intentional audio-only coverage, not as validation or alignment failures.
 
@@ -122,7 +151,7 @@ The `.etp` file is not a V1 input. Its cache describes good-microphone recording
 
 ### 5.2 Segment matching
 
-For each master segment whose take is video-enabled, the matcher considers only source entries with the normalized logical take label. Each candidate is cropped to its configured occurrence bounds. A short guard region at the master segment's edit edges is excluded from feature scoring so master crossfades do not dominate the match. The matcher is not invoked for an audio-only segment; that segment receives `video_status = "not_provided"` without a confidence score or warning.
+For each master segment whose take is video-enabled, the matcher considers only source entries with the normalized logical take label. A segment-specific manual offset takes precedence for only that source/segment. Otherwise each candidate is cropped to its configured segment-specific search range when present, or to its occurrence bounds. Automatic sources are matched in reference rounds: all primary references first, followed by each configured fallback index only while the earlier round is unsafe. A short guard region at the master segment's edit edges is excluded from feature scoring so master crossfades do not dominate the match. The matcher is not invoked for an audio-only segment; that segment receives `video_status = "not_provided"` without a confidence score or warning.
 
 Subsequence DTW locates the master segment inside each candidate occurrence. A robust affine fit over the interior warping path estimates the source start and end, rejects outlier path points, and measures drift. The lowest-cost valid candidate wins only when it is unambiguous and stable under a one-hop boundary perturbation.
 

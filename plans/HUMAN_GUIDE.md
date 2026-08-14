@@ -57,7 +57,7 @@ For a take whose video you supplied, the program blocks automatic building when:
 - the predicted drift exceeds two frames;
 - the segment is too short for meaningful audio features.
 
-Repeated musical phrases are the main ambiguity risk. Narrow source windows are the best remedy. For an exceptional case, you can enter a measured `manual_offset_seconds` for that source. The override is never hidden: the report and timeline metadata identify it.
+Repeated musical phrases are the main ambiguity risk. Narrow source windows are the best remedy. Use `[[sources.segment_search_ranges]]` with a stable `segment_id`, `source_start`, and `source_end` to narrow one source candidate without affecting its other segments. If one camera microphone is poor, add same-length, same-timeline recordings to `additional_audio_reference_paths`; they are tried in order only after the primary match is unsafe, and the chosen reference is visible in the report. For an exceptional case, enter source-wide `manual_offset_seconds`, or use `[[sources.segment_manual_offsets]]` to override only one segment while later segments of the same take remain automatic. The effective bounds, fallback reference, or manual override are never hidden in the report.
 
 Not supplying video for a take never triggers these confidence errors. However, if you configure a video source and its match fails, the program will not silently omit it; you must fix its bounds/reference or use an explicit manual offset.
 

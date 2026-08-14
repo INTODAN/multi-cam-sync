@@ -233,6 +233,9 @@ class SegmentMatcher:
             ),
             blockers=tuple(blockers),
             warnings=("manual_offset_seconds bypassed feature extraction and DTW",),
+            search_start_seconds=candidate.start_seconds,
+            search_end_seconds=candidate.end_seconds,
+            audio_reference_id=candidate.audio_reference_id,
         )
 
     def _evaluate_automatic(
@@ -294,6 +297,9 @@ class SegmentMatcher:
             source_out_seconds=source_out,
             diagnostics=diagnostics,
             blockers=_ordered_unique(blockers),
+            search_start_seconds=candidate.start_seconds,
+            search_end_seconds=candidate.end_seconds,
+            audio_reference_id=candidate.audio_reference_id,
         )
 
     def _align_with_guard(
@@ -395,4 +401,7 @@ class SegmentMatcher:
             source_out_seconds=None,
             diagnostics=MatchDiagnostics(settings=settings.as_dict()),
             blockers=(blocker,),
+            search_start_seconds=candidate.start_seconds,
+            search_end_seconds=candidate.end_seconds,
+            audio_reference_id=candidate.audio_reference_id,
         )

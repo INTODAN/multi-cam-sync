@@ -69,7 +69,7 @@ SUPPORTED_MARKER_COLORS = frozenset(
 )
 
 _AUDIO_SOURCE_TIME_TOLERANCE_FRAMES = Decimal("0.0001")
-_MULTICAM_VIDEO_NAME_SUFFIX = re.compile(r" - Video [1-9][0-9]*")
+_MULTICAM_VIDEO_NAME_SUFFIX = re.compile(r" - (?:Angle|Video) [1-9][0-9]*")
 
 
 @dataclass(frozen=True, slots=True)
@@ -544,10 +544,17 @@ def _verify_item(item: RawTimelineItem, expected: _Clip, *, track_type: str) -> 
                     f"coarse source frame tuple expected {wanted_source!r} with at most "
                     f"one-frame truncation, got {actual_source!r}",
                 )
-    elif actual_source != wanted_source:
-        raise ResolveVerificationError(
-            operation, f"source frame tuple expected {wanted_source!r}, got {actual_source!r}"
-        )
+    else:
+        # Resolve can floor either video source-boundary getter by one frame after
+        # accepting the exact integer AppendToTimeline bounds. Keep this as a coarse
+        # read-back check; exact record bounds are verified above.
+        for actual_frame, wanted_frame in zip(actual_source, wanted_source, strict=True):
+            if actual_frame < 0 or actual_frame not in {wanted_frame - 1, wanted_frame}:
+                raise ResolveVerificationError(
+                    operation,
+                    f"source frame tuple expected {wanted_source!r} with at most "
+                    f"one-frame truncation, got {actual_source!r}",
+                )
     actual_name = _require_text("TimelineItem.GetName", item.GetName)
     resolve_multicam_name = (
         track_type == "video"

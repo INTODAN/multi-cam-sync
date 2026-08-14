@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Mapping
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
 from decimal import ROUND_HALF_UP, Decimal
 from fractions import Fraction
@@ -18,7 +18,7 @@ from multi_cam_sync.alignment import (
     AlignmentSettings,
     CandidateMatch,
     MatchDiagnostics,
-    MatchStatus,
+    SegmentMatch,
     SegmentMatcher,
     SegmentRequest,
 )
@@ -88,8 +88,10 @@ class ValidationContext:
     source_items: Mapping[str, ResolvedMediaItem]
     master_path: Path
     source_paths: Mapping[str, Path]
+    additional_source_paths: Mapping[str, tuple[Path, ...]]
     master_probe: MediaProbe
     source_probes: Mapping[str, MediaProbe]
+    additional_source_probes: Mapping[str, tuple[MediaProbe, ...]]
 
     @property
     def enabled_take_keys(self) -> frozenset[str]:
@@ -178,6 +180,80 @@ def _diagnostics_dict(value: MatchDiagnostics) -> Mapping[str, object]:
 
 def _candidate_dict(value: CandidateMatch) -> Mapping[str, object]:
     return cast("Mapping[str, object]", asdict(value))
+
+
+def _audio_reference_id(reference_index: int) -> str:
+    return "primary" if reference_index == 0 else f"additional-{reference_index}"
+
+
+def _source_reference_paths(context: ValidationContext, source: SourceSpec) -> tuple[Path, ...]:
+    return (context.source_paths[source.id], *context.additional_source_paths[source.id])
+
+
+def _input_file_records(context: ValidationContext) -> tuple[InputFileRecord, ...]:
+    files = [InputFileRecord("master", None, fingerprint_file(context.master_path))]
+    for source in context.spec.sources:
+        files.append(
+            InputFileRecord(
+                "source",
+                source.id,
+                fingerprint_file(context.source_paths[source.id]),
+            )
+        )
+        files.extend(
+            InputFileRecord(
+                f"source_additional_{reference_index}",
+                source.id,
+                fingerprint_file(path),
+            )
+            for reference_index, path in enumerate(
+                context.additional_source_paths[source.id], start=1
+            )
+        )
+    return tuple(files)
+
+
+def _merge_reference_attempts(
+    attempts: list[tuple[int, SegmentMatch]],
+) -> SegmentMatch:
+    """Keep all evidence while selecting the first safe reference or best unsafe attempt."""
+    if not attempts:
+        raise ValueError("at least one audio-reference match attempt is required")
+    last_reference_index, last = attempts[-1]
+    if last.safe_for_planning:
+        selected = last
+    else:
+        _, selected = min(
+            attempts,
+            key=lambda item: (
+                item[1].diagnostics.normalized_cost is None,
+                item[1].diagnostics.normalized_cost
+                if item[1].diagnostics.normalized_cost is not None
+                else float("inf"),
+                item[0],
+            ),
+        )
+    if len(attempts) == 1:
+        return selected
+
+    candidates = tuple(candidate for _, attempt in attempts for candidate in attempt.candidates)
+    if last.safe_for_planning:
+        warnings = (
+            *selected.warnings,
+            f"matched using additional audio reference {last_reference_index} after "
+            f"{len(attempts) - 1} earlier reference attempt(s) were unsafe",
+        )
+        blockers = selected.blockers
+    else:
+        warnings = (
+            *selected.warnings,
+            f"automatic matching tried the primary plus {len(attempts) - 1} additional "
+            "audio reference(s); none was safe",
+        )
+        blockers = tuple(
+            dict.fromkeys(blocker for _, attempt in attempts for blocker in attempt.blockers)
+        )
+    return replace(selected, candidates=candidates, blockers=blockers, warnings=warnings)
 
 
 def _segment_inputs(context: ValidationContext) -> tuple[SegmentInput, ...]:
@@ -388,6 +464,13 @@ class MultiCamSyncService:
             )
             for source in spec.sources
         }
+        additional_source_paths = {
+            source.id: tuple(
+                path.expanduser().resolve(strict=False)
+                for path in source.additional_audio_reference_paths
+            )
+            for source in spec.sources
+        }
 
         master_probe = self._media_reader.probe(master_path)
         master_resolve_duration = _media_duration(master_item)
@@ -405,8 +488,25 @@ class MultiCamSyncService:
         segments = build_master_segments(cuts, master_resolve_duration)
 
         source_probes: dict[str, MediaProbe] = {}
+        additional_source_probes: dict[str, tuple[MediaProbe, ...]] = {}
         for source in spec.sources:
-            probe = self._media_reader.probe(source_paths[source.id])
+            reference_paths = (source_paths[source.id], *additional_source_paths[source.id])
+            if len(set(reference_paths)) != len(reference_paths):
+                raise ServiceInputError(
+                    f"source {source.id!r} audio reference paths must be unique"
+                )
+            probe = self._media_reader.probe(reference_paths[0])
+            fallback_probes: list[MediaProbe] = []
+            for reference_index, path in enumerate(reference_paths[1:], start=1):
+                fallback_probe = self._media_reader.probe(path)
+                if fallback_probe.duration_seconds != probe.duration_seconds:
+                    raise ServiceInputError(
+                        f"source {source.id!r} additional audio reference {reference_index} "
+                        f"duration {fallback_probe.duration_seconds} differs from primary "
+                        f"duration {probe.duration_seconds}; fallback references must have "
+                        "exactly the same length"
+                    )
+                fallback_probes.append(fallback_probe)
             start = source.source_start
             end = source.source_end or probe.duration_seconds
             if start >= probe.duration_seconds or end > probe.duration_seconds:
@@ -419,7 +519,14 @@ class MultiCamSyncService:
                 raise ServiceInputError(
                     f"source {source.id!r} bounds exceed its Resolve item duration"
                 )
+            for search_range in source.segment_search_ranges:
+                if search_range.source_end > end:
+                    raise ServiceInputError(
+                        f"source {source.id!r} search range for "
+                        f"{search_range.segment_id!r} exceeds reference duration {end}"
+                    )
             source_probes[source.id] = probe
+            additional_source_probes[source.id] = tuple(fallback_probes)
 
         return ValidationContext(
             spec=spec,
@@ -432,8 +539,10 @@ class MultiCamSyncService:
             source_items=source_items,
             master_path=master_path,
             source_paths=source_paths,
+            additional_source_paths=additional_source_paths,
             master_probe=master_probe,
             source_probes=source_probes,
+            additional_source_probes=additional_source_probes,
         )
 
     def analyze(
@@ -464,7 +573,7 @@ class MultiCamSyncService:
             )
 
         sources_by_id = {source.id: source for source in context.spec.sources}
-        loaded_candidates: dict[str, AlignmentCandidate] = {}
+        loaded_candidates: dict[tuple[str, int], AlignmentCandidate] = {}
         segment_reports: list[SegmentReport] = []
         assignments: dict[str, VideoAssignment] = {}
         unsafe_count = 0
@@ -505,43 +614,83 @@ class MultiCamSyncService:
                     item_total=enabled_segment_count,
                 ),
             )
-            candidates: list[AlignmentCandidate] = []
-            for source in sources:
-                candidate = loaded_candidates.get(source.id)
-                if candidate is None:
-                    audio = self._media_reader.load_audio(
-                        AudioRequest(
-                            context.source_paths[source.id],
+            assert master_audio is not None
+            segment_request = SegmentRequest(
+                segment_id=segment.id,
+                take=segment.display_take,
+                master_start_seconds=segment.start_seconds,
+                master_end_seconds=segment.end_seconds,
+            )
+            max_reference_count = max(
+                len(_source_reference_paths(context, source)) for source in sources
+            )
+            reference_attempts: list[tuple[int, SegmentMatch]] = []
+            for reference_index in range(max_reference_count):
+                candidates: list[AlignmentCandidate] = []
+                for source in sources:
+                    manual_offset = source.manual_offset_for(segment.id)
+                    if manual_offset is not None and reference_index > 0:
+                        # A manual offset is independent of microphone choice. Evaluate it
+                        # exactly once while preserving fallbacks for automatic segments.
+                        continue
+                    reference_paths = _source_reference_paths(context, source)
+                    if reference_index >= len(reference_paths):
+                        continue
+                    candidate_key = (source.id, reference_index)
+                    base_candidate = loaded_candidates.get(candidate_key)
+                    if base_candidate is None:
+                        audio = self._media_reader.load_audio(
+                            AudioRequest(
+                                reference_paths[reference_index],
+                                source_start_seconds=source.source_start,
+                                source_end_seconds=source.source_end,
+                                sample_rate=settings.sample_rate,
+                            )
+                        )
+                        base_candidate = AlignmentCandidate(
+                            source_id=source.id,
+                            audio=audio,
                             source_start_seconds=source.source_start,
                             source_end_seconds=source.source_end,
-                            sample_rate=settings.sample_rate,
+                            audio_reference_id=_audio_reference_id(reference_index),
                         )
+                        loaded_candidates[candidate_key] = base_candidate
+                    search_range = source.search_range_for(segment.id)
+                    candidate = (
+                        AlignmentCandidate(
+                            source_id=source.id,
+                            audio=base_candidate.audio,
+                            source_start_seconds=(
+                                search_range.source_start
+                                if search_range is not None
+                                else base_candidate.source_start_seconds
+                            ),
+                            source_end_seconds=(
+                                search_range.source_end
+                                if search_range is not None
+                                else base_candidate.source_end_seconds
+                            ),
+                            manual_offset_seconds=manual_offset,
+                            audio_reference_id=base_candidate.audio_reference_id,
+                        )
+                        if search_range is not None or manual_offset is not None
+                        else base_candidate
                     )
-                    candidate = AlignmentCandidate(
-                        source_id=source.id,
-                        audio=audio,
-                        source_start_seconds=source.source_start,
-                        source_end_seconds=source.source_end,
-                        manual_offset_seconds=source.manual_offset_seconds,
-                    )
-                    loaded_candidates[source.id] = candidate
-                candidates.append(candidate)
+                    candidates.append(candidate)
 
-            assert master_audio is not None
-            match = self._matcher.match(
-                SegmentRequest(
-                    segment_id=segment.id,
-                    take=segment.display_take,
-                    master_start_seconds=segment.start_seconds,
-                    master_end_seconds=segment.end_seconds,
-                ),
-                master_audio,
-                candidates,
-                settings,
-            )
-            status = (
-                VideoStatus.MATCHED if match.status is MatchStatus.MATCHED else VideoStatus.UNSAFE
-            )
+                if not candidates:
+                    continue
+                attempt = self._matcher.match(
+                    segment_request,
+                    master_audio,
+                    candidates,
+                    settings,
+                )
+                reference_attempts.append((reference_index, attempt))
+                if attempt.safe_for_planning:
+                    break
+            match = _merge_reference_attempts(reference_attempts)
+            status = VideoStatus.MATCHED if match.safe_for_planning else VideoStatus.UNSAFE
             if status is VideoStatus.UNSAFE:
                 unsafe_count += 1
             source_spec: SourceSpec | None = (
@@ -596,21 +745,6 @@ class MultiCamSyncService:
             plan = create_edit_plan(_planning_inputs(context, assignments))
 
         _notify(progress, ProgressEvent(4, ANALYZE_STEP_COUNT, "Fingerprinting input media"))
-        files = [
-            InputFileRecord(
-                role="master",
-                source_id=None,
-                fingerprint=fingerprint_file(context.master_path),
-            )
-        ]
-        files.extend(
-            InputFileRecord(
-                role="source",
-                source_id=source.id,
-                fingerprint=fingerprint_file(context.source_paths[source.id]),
-            )
-            for source in context.spec.sources
-        )
         report = AlignmentReport(
             tool_version=__version__,
             created_at_utc=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
@@ -620,7 +754,7 @@ class MultiCamSyncService:
             cuts_hash=context.cuts_hash,
             alignment_settings=settings.as_dict(),
             project_snapshot=context.snapshot,
-            input_files=tuple(files),
+            input_files=_input_file_records(context),
             segments=tuple(segment_reports),
             plan=plan,
         )
@@ -666,16 +800,7 @@ class MultiCamSyncService:
             progress,
             ProgressEvent(2, BUILD_STEP_COUNT, "Checking input fingerprints and settings"),
         )
-        current_files = [InputFileRecord("master", None, fingerprint_file(current.master_path))]
-        current_files.extend(
-            InputFileRecord(
-                "source",
-                source.id,
-                fingerprint_file(current.source_paths[source.id]),
-            )
-            for source in current.spec.sources
-        )
-        if tuple(current_files) != report.input_files:
+        if _input_file_records(current) != report.input_files:
             raise ServiceInputError("an input media file changed after analysis; analyze again")
 
         current_rate = FrameRate.parse(current.snapshot.timeline_frame_rate)

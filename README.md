@@ -121,9 +121,27 @@ take = "Take 8 A"
 media_pool_folder = "Video/Multicam"
 media_pool_name = "Take 8 multicam"
 audio_reference_path = "media/take-8-camera.mov" # optional when item has File Path
+additional_audio_reference_paths = [             # optional ordered fallbacks
+    "media/take-8-camera-b.mov",
+    "media/take-8-camera-c.mov",
+]
 source_start = "00:00:00.000"                    # optional; defaults to zero
 source_end = "00:02:10.000"                      # optional; defaults to media end
-manual_offset_seconds = -1.25                    # optional numeric seconds
+
+# Optional: narrow only this source candidate for one stable segment ID.
+[[sources.segment_search_ranges]]
+segment_id = "segment-0014"
+source_start = "00:01:12.000"
+source_end = "00:01:20.000"
+
+# Optional: bypass automatic matching for one different segment only.
+[[sources.segment_manual_offsets]]
+segment_id = "segment-0018"
+manual_offset_seconds = 72.25
+
+# Source-wide alternative; cannot be combined with segment overrides, search ranges,
+# or fallback references.
+# manual_offset_seconds = -1.25
 ```
 
 ### Exact schema rules
@@ -141,14 +159,48 @@ manual_offset_seconds = -1.25                    # optional numeric seconds
 | `[[sources]]` | `media_pool_folder` | nonblank string | Required exact folder path; use `.` for the root bin. |
 | `[[sources]]` | `media_pool_name` | nonblank string | Required exact video or multicam item name. |
 | `[[sources]]` | `audio_reference_path` | path string | Optional unless the Resolve item has no readable physical `File Path`. |
+| `[[sources]]` | `additional_audio_reference_paths` | array of path strings | Optional ordered fallback microphones on the exact same source timeline and with exactly the primary reference's whole-file duration. |
 | `[[sources]]` | `source_start` | timestamp or seconds | Optional nonnegative occurrence start; default `0`. |
 | `[[sources]]` | `source_end` | timestamp or seconds | Optional occurrence end, strictly greater than `source_start`. |
 | `[[sources]]` | `manual_offset_seconds` | TOML number | Optional finite offset where source time equals master time plus this value. |
+| `[[sources.segment_search_ranges]]` | `segment_id` | nonblank string | Required stable segment ID from the report/cut order; unique within its source. |
+| `[[sources.segment_search_ranges]]` | `source_start` | timestamp or seconds | Required search-window start within the parent source occurrence. |
+| `[[sources.segment_search_ranges]]` | `source_end` | timestamp or seconds | Required search-window end within the parent source occurrence. |
+| `[[sources.segment_manual_offsets]]` | `segment_id` | nonblank string | Required stable segment ID; unique within its source and carrying the source's take. |
+| `[[sources.segment_manual_offsets]]` | `manual_offset_seconds` | TOML number | Required finite offset applied only to this segment. |
 
 `source_start` and `source_end` accept numeric seconds or a string in
 `HH:MM:SS[.fraction]` form. `manual_offset_seconds` must be an unquoted TOML number. All
 filesystem paths may be absolute; relative paths are resolved from the configuration file.
 Unknown keys, duplicate source IDs, unused source take labels, and invalid bounds are errors.
+
+`audio_reference_path` (or the Resolve item's physical path when that key is omitted) is
+always tried first. If the complete match for a segment is unsafe,
+`additional_audio_reference_paths` are tried in order until one is safe. All references are
+alternative microphones for the same recording: their time zero, duration, source bounds,
+and segment search ranges must describe the same positions. Validation probes every fallback
+and requires its whole-file duration to equal the primary duration exactly. Analysis decodes
+a fallback lazily, only after an earlier reference fails. Every configured reference is still
+fingerprinted in the report, so changing even an unused fallback requires another analysis.
+Fallback use and each candidate's `audio_reference_id` are recorded in segment diagnostics.
+Additional references cannot be combined with source-wide `manual_offset_seconds`. They may
+coexist with segment-specific manual offsets and remain available to all automatic segments.
+
+Each `[[sources.segment_search_ranges]]` table belongs to the immediately preceding
+`[[sources]]` entry. It narrows DTW only for that source and segment; other segments still
+search the parent source's full `source_start`/`source_end` occurrence. The segment must use
+the parent source's logical take, and the narrow window must remain inside the parent bounds.
+Its times use the same absolute physical-source timeline as the parent bounds, not offsets
+relative to `sources.source_start`.
+Per-segment search ranges cannot be combined with source-wide `manual_offset_seconds`, or with
+a segment manual offset for the same segment. The effective candidate bounds are recorded in
+the report as `search_start_seconds` and `search_end_seconds`.
+
+Each `[[sources.segment_manual_offsets]]` table belongs to the immediately preceding source.
+It bypasses DTW only for its `segment_id`; other segments of the same take remain automatic,
+including fallback-reference retries. The report labels the overridden segment `manual` and
+records the warning. Segment offsets must be unique and cannot coexist with source-wide
+`manual_offset_seconds`.
 
 The cut list consists of one or more transition blocks:
 
@@ -232,7 +284,8 @@ For recovery:
 
 - fix a bad selector, source bound, or reference path, then rerun `validate` and `analyze`;
 - narrow occurrence bounds when repeated music makes candidates ambiguous;
-- use numeric `manual_offset_seconds` only after measuring it, and review its report warning;
+- use a numeric source-wide or segment-specific `manual_offset_seconds` only after measuring
+  it, and review its report warning;
 - rerun `analyze` whenever `build` reports stale inputs;
 - choose a new `timeline_name` if it already exists—V1 has no replace mode;
 - if a failure occurs after timeline creation, the tool attempts to delete only that new

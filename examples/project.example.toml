@@ -18,6 +18,8 @@ take = "Take 8 A"
 media_pool_folder = "Video/Multicam"
 media_pool_name = "Take 8 multicam"
 audio_reference_path = "media/take-8-reference.mov"
+# Ordered, same-length microphone alternatives on the identical source timeline.
+additional_audio_reference_paths = ["media/take-8-camera-b-reference.mov"]
 source_start = "00:00:00.000"
 source_end = "00:02:10.000"
 
@@ -27,5 +29,19 @@ take = "Take 8 B"
 media_pool_folder = "Video/Multicam"
 media_pool_name = "Take 8 multicam"
 audio_reference_path = "media/take-8-reference.mov"
+additional_audio_reference_paths = ["media/take-8-camera-b-reference.mov"]
 source_start = "00:02:25.000"
 source_end = "00:05:20.000"
+
+# Optional: reduce DTW work/ambiguity for one segment while leaving every other
+# Take 8 B segment on the broad occurrence bounds above.
+[[sources.segment_search_ranges]]
+segment_id = "segment-0014"
+source_start = "00:04:57.000"
+source_end = "00:05:03.000"
+
+# Alternative for a different segment: bypass DTW only there, while this source's
+# other segments still use automatic matching and fallback references.
+# [[sources.segment_manual_offsets]]
+# segment_id = "segment-0019"
+# manual_offset_seconds = 123.456

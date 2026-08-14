@@ -145,12 +145,15 @@ class AlignmentCandidate:
     source_start_seconds: Decimal | None = None
     source_end_seconds: Decimal | None = None
     manual_offset_seconds: Decimal | None = None
+    audio_reference_id: str = "primary"
 
     def __post_init__(self) -> None:
         start = self.start_seconds
         end = self.end_seconds
         if not self.source_id:
             raise ValueError("source_id is required")
+        if not self.audio_reference_id:
+            raise ValueError("audio_reference_id is required")
         if start < self.audio.origin_seconds or end > self.audio.end_seconds or end <= start:
             raise ValueError("candidate bounds must fit its decoded AnalysisAudio")
 
@@ -202,6 +205,9 @@ class CandidateMatch:
     diagnostics: MatchDiagnostics
     blockers: tuple[BlockerCode, ...] = ()
     warnings: tuple[str, ...] = ()
+    search_start_seconds: Decimal | None = None
+    search_end_seconds: Decimal | None = None
+    audio_reference_id: str = "primary"
 
     @property
     def safe(self) -> bool:

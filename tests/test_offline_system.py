@@ -5,9 +5,12 @@ from __future__ import annotations
 from decimal import Decimal
 from fractions import Fraction
 from pathlib import Path
+from shutil import copyfile
 from typing import cast
 
+import numpy as np
 import pytest
+import soundfile as sf
 
 from multi_cam_sync.media import (
     AnalysisAudio,
@@ -203,6 +206,100 @@ def test_changed_shared_physical_input_blocks_before_resolve_mutation(tmp_path: 
     assert _mutation_events(fake) == []
 
     source_path.write_bytes(source_path.read_bytes() + b"changed-after-analysis")
+    fake.events.clear()
+
+    with pytest.raises(ServiceInputError, match="input media file changed"):
+        service.build(config_path, report)
+
+    assert _mutation_events(fake) == []
+
+
+def test_generated_segment_manual_offset_leaves_later_same_take_segment_automatic(
+    tmp_path: Path,
+) -> None:
+    config_path, _, fake, _, service = _system(tmp_path)
+    config_path.write_text(
+        config_path.read_text(encoding="utf-8").replace(
+            'source_end = "00:00:16.500"\n\n[[sources]]',
+            """source_end = "00:00:16.500"
+
+[[sources.segment_manual_offsets]]
+segment_id = "segment-0001"
+manual_offset_seconds = 1.25
+
+[[sources]]""",
+        ),
+        encoding="utf-8",
+    )
+
+    report = service.analyze(config_path).report
+
+    assert report.safe_to_build
+    first = report.segments[0]
+    later = report.segments[9]
+    assert first.method == "manual"
+    assert first.source_in_seconds == Decimal("1.25")
+    assert any("manual_offset_seconds" in warning for warning in first.warnings)
+    assert later.take == first.take
+    assert later.method == "automatic"
+    assert later.source_in_seconds is not None
+    _assert_within_two_frames(later.source_in_seconds, Decimal("14.5"))
+    assert _mutation_events(fake) == []
+
+
+def test_generated_silent_primary_uses_same_length_camera_fallback(tmp_path: Path) -> None:
+    config_path, source_path, fake, backend, service = _system(tmp_path)
+    fallback_path = source_path.with_name("second camera reference.wav")
+    copyfile(source_path, fallback_path)
+    source_audio, sample_rate = sf.read(source_path, dtype="float32", always_2d=True)
+    sf.write(
+        source_path,
+        np.zeros_like(source_audio),
+        sample_rate,
+        subtype="FLOAT",
+    )
+    primary_config_path = source_path.relative_to(tmp_path)
+    fallback_config_path = fallback_path.relative_to(tmp_path)
+    config_path.write_text(
+        config_path.read_text(encoding="utf-8").replace(
+            f'audio_reference_path = "{primary_config_path}"',
+            (
+                f'audio_reference_path = "{primary_config_path}"\n'
+                "additional_audio_reference_paths = [\n"
+                f'    "{fallback_config_path}",\n'
+                "]"
+            ),
+        ),
+        encoding="utf-8",
+    )
+
+    report = service.analyze(config_path).report
+
+    assert report.safe_to_build
+    assert len(backend.audio_requests) == 5  # master, then two crops from each camera reference
+    matched = [
+        segment for segment in report.segments if segment.video_status is VideoStatus.MATCHED
+    ]
+    assert len(matched) == 3
+    assert all(
+        any("matched using additional audio reference 1" in warning for warning in segment.warnings)
+        for segment in matched
+    )
+    assert all(
+        {candidate["audio_reference_id"] for candidate in segment.candidates}
+        == {"primary", "additional-1"}
+        for segment in matched
+    )
+    assert [record.role for record in report.input_files] == [
+        "master",
+        "source",
+        "source_additional_1",
+        "source",
+        "source_additional_1",
+    ]
+    assert _mutation_events(fake) == []
+
+    fallback_path.write_bytes(fallback_path.read_bytes() + b"changed-after-analysis")
     fake.events.clear()
 
     with pytest.raises(ServiceInputError, match="input media file changed"):

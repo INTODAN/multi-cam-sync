@@ -48,6 +48,63 @@ class MasterSpec(FrozenModel):
         return _nonblank(value, f"master.{info.field_name}")
 
 
+class SegmentSearchRange(FrozenModel):
+    """A narrower source-audio search window for one stable master segment."""
+
+    segment_id: str
+    source_start: Decimal
+    source_end: Decimal
+
+    @field_validator("segment_id")
+    @classmethod
+    def validate_segment_id(cls, value: str) -> str:
+        return _nonblank(value, "sources.segment_search_ranges.segment_id")
+
+    @field_validator("source_start", "source_end", mode="before")
+    @classmethod
+    def validate_decimal_fields(cls, value: object, info: Any) -> Decimal:
+        return parse_decimal_seconds(
+            value,
+            field_name=f"sources.segment_search_ranges.{info.field_name}",
+        )
+
+    @model_validator(mode="after")
+    def validate_bounds(self) -> Self:
+        if self.source_start < 0:
+            raise ValueError("sources.segment_search_ranges.source_start must be nonnegative")
+        if self.source_end <= self.source_start:
+            raise ValueError(
+                "sources.segment_search_ranges.source_end must be greater than "
+                "sources.segment_search_ranges.source_start"
+            )
+        return self
+
+
+class SegmentManualOffset(FrozenModel):
+    """A manual source-time offset applied to one stable master segment."""
+
+    segment_id: str
+    manual_offset_seconds: Decimal
+
+    @field_validator("segment_id")
+    @classmethod
+    def validate_segment_id(cls, value: str) -> str:
+        return _nonblank(value, "sources.segment_manual_offsets.segment_id")
+
+    @field_validator("manual_offset_seconds", mode="before")
+    @classmethod
+    def validate_manual_offset(cls, value: object) -> Decimal:
+        if isinstance(value, str):
+            raise ValueError(
+                "sources.segment_manual_offsets.manual_offset_seconds must be a finite "
+                "numeric TOML value"
+            )
+        return parse_decimal_seconds(
+            value,
+            field_name="sources.segment_manual_offsets.manual_offset_seconds",
+        )
+
+
 class SourceSpec(FrozenModel):
     id: str
     take: str
@@ -55,9 +112,12 @@ class SourceSpec(FrozenModel):
     media_pool_folder: str
     media_pool_name: str
     audio_reference_path: Path | None = None
+    additional_audio_reference_paths: tuple[Path, ...] = ()
     source_start: Decimal = Decimal(0)
     source_end: Decimal | None = None
     manual_offset_seconds: Decimal | None = None
+    segment_search_ranges: tuple[SegmentSearchRange, ...] = ()
+    segment_manual_offsets: tuple[SegmentManualOffset, ...] = ()
 
     @field_validator("id", "media_pool_folder", "media_pool_name")
     @classmethod
@@ -82,6 +142,18 @@ class SourceSpec(FrozenModel):
             raise ValueError(f"take_key must equal normalized take name {expected!r}")
         return expected
 
+    @field_validator(
+        "additional_audio_reference_paths",
+        "segment_search_ranges",
+        "segment_manual_offsets",
+        mode="before",
+    )
+    @classmethod
+    def normalize_toml_arrays(cls, value: object) -> object:
+        if isinstance(value, list):
+            return tuple(value)
+        return value
+
     @field_validator("source_start", "source_end", "manual_offset_seconds", mode="before")
     @classmethod
     def validate_decimal_fields(cls, value: object, info: Any) -> Decimal | None:
@@ -100,7 +172,99 @@ class SourceSpec(FrozenModel):
                 raise ValueError("sources.source_end must be nonnegative")
             if self.source_end <= self.source_start:
                 raise ValueError("sources.source_end must be greater than sources.source_start")
+        seen_segment_ids: set[str] = set()
+        duplicate_segment_ids: set[str] = set()
+        for search_range in self.segment_search_ranges:
+            if search_range.segment_id in seen_segment_ids:
+                duplicate_segment_ids.add(search_range.segment_id)
+            seen_segment_ids.add(search_range.segment_id)
+            if search_range.source_start < self.source_start:
+                raise ValueError(
+                    "sources.segment_search_ranges must start at or after sources.source_start"
+                )
+            if self.source_end is not None and search_range.source_end > self.source_end:
+                raise ValueError(
+                    "sources.segment_search_ranges must end at or before sources.source_end"
+                )
+        if duplicate_segment_ids:
+            duplicates = ", ".join(sorted(duplicate_segment_ids))
+            raise ValueError(
+                "sources.segment_search_ranges.segment_id values must be unique within a "
+                f"source; duplicates: {duplicates}"
+            )
+        manual_segment_ids = [override.segment_id for override in self.segment_manual_offsets]
+        duplicate_manual_segment_ids = {
+            segment_id
+            for segment_id in manual_segment_ids
+            if manual_segment_ids.count(segment_id) > 1
+        }
+        if duplicate_manual_segment_ids:
+            duplicates = ", ".join(sorted(duplicate_manual_segment_ids))
+            raise ValueError(
+                "sources.segment_manual_offsets.segment_id values must be unique within a "
+                f"source; duplicates: {duplicates}"
+            )
+        overlapping_segment_ids = seen_segment_ids.intersection(manual_segment_ids)
+        if overlapping_segment_ids:
+            overlaps = ", ".join(sorted(overlapping_segment_ids))
+            raise ValueError(
+                "sources.segment_search_ranges and sources.segment_manual_offsets cannot "
+                f"both configure the same segment: {overlaps}"
+            )
+        reference_paths = tuple(
+            path.resolve(strict=False) for path in self.additional_audio_reference_paths
+        )
+        if len(set(reference_paths)) != len(reference_paths):
+            raise ValueError("sources.additional_audio_reference_paths must be unique")
+        if (
+            self.audio_reference_path is not None
+            and self.audio_reference_path.resolve(strict=False) in reference_paths
+        ):
+            raise ValueError(
+                "sources.additional_audio_reference_paths must not repeat "
+                "sources.audio_reference_path"
+            )
+        if self.manual_offset_seconds is not None and self.additional_audio_reference_paths:
+            raise ValueError(
+                "sources.additional_audio_reference_paths cannot be combined with "
+                "sources.manual_offset_seconds because manual matching does not decode audio"
+            )
+        if self.manual_offset_seconds is not None and self.segment_search_ranges:
+            raise ValueError(
+                "sources.segment_search_ranges cannot be combined with "
+                "sources.manual_offset_seconds because manual matching does not search"
+            )
+        if self.manual_offset_seconds is not None and self.segment_manual_offsets:
+            raise ValueError(
+                "sources.segment_manual_offsets cannot be combined with the source-wide "
+                "sources.manual_offset_seconds"
+            )
         return self
+
+    def search_range_for(self, segment_id: str) -> SegmentSearchRange | None:
+        """Return this source's optional narrow search window for ``segment_id``."""
+        return next(
+            (
+                search_range
+                for search_range in self.segment_search_ranges
+                if search_range.segment_id == segment_id
+            ),
+            None,
+        )
+
+    def manual_offset_for(self, segment_id: str) -> Decimal | None:
+        """Return the manual offset for this segment, or the source-wide fallback."""
+        override = next(
+            (
+                override
+                for override in self.segment_manual_offsets
+                if override.segment_id == segment_id
+            ),
+            None,
+        )
+        return (
+            override.manual_offset_seconds if override is not None else self.manual_offset_seconds
+        )
 
 
 class CutTransition(FrozenModel):

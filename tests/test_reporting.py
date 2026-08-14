@@ -112,6 +112,14 @@ def _report(*, run_id: str = "run-1", created: str = "2026-01-01T00:00:00Z") -> 
                 source_out_seconds=Decimal(7),
                 method="automatic",
                 diagnostics={"coverage": 1.0},
+                candidates=(
+                    {
+                        "source_id": "source-a",
+                        "audio_reference_id": "additional-1",
+                        "search_start_seconds": Decimal(1),
+                        "search_end_seconds": Decimal(9),
+                    },
+                ),
             ),
             SegmentReport(
                 "segment-0002",
@@ -135,6 +143,9 @@ def test_report_round_trip_is_stable_and_revalidates_plan(tmp_path: Path) -> Non
     assert loaded.plan is not None
     loaded.plan.validate()
     assert canonical_payload(loaded) == canonical_payload(report)
+    assert loaded.segments[0].candidates[0]["search_start_seconds"] == "1"
+    assert loaded.segments[0].candidates[0]["search_end_seconds"] == "9"
+    assert loaded.segments[0].candidates[0]["audio_reference_id"] == "additional-1"
     assert path.read_bytes().endswith(b"\n")
     assert not list(path.parent.glob("*.tmp"))
 

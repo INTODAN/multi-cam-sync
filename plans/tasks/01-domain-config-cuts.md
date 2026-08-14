@@ -24,7 +24,7 @@ class ProjectSettings: ...  # timeline_name, cuts_file
 class MasterSpec: ...  # exact Media Pool selector and optional audio_path
 
 
-class SourceSpec: ...  # id, take, selector, reference path/bounds, optional override
+class SourceSpec: ...  # id, take, selector, ordered audio references/bounds, optional override
 
 
 class CutTransition: ...  # outgoing_take, incoming_take, master_time
@@ -45,9 +45,9 @@ Use frozen Pydantic v2 models or frozen dataclasses with equivalent validation. 
 ## Validation rules
 
 1. Accept only `schema_version = 1`; reject missing, boolean, string, zero, or future values with an actionable message.
-2. Resolve `cuts_file`, `master.audio_path`, and every `audio_reference_path` relative to the TOML's parent. Preserve absolute normalized paths without requiring Resolve.
+2. Resolve `cuts_file`, `master.audio_path`, `audio_reference_path`, and every ordered `additional_audio_reference_paths` entry relative to the TOML's parent. Preserve absolute normalized paths without requiring Resolve; reject duplicate references within a source.
 3. Require a nonblank timeline name. Permit an omitted/empty `sources` list. For each supplied source, require exact nonblank Media Pool folder/name selectors, a unique nonblank ID, a nonblank take label, and a finite numeric manual offset when present.
-4. Source bounds are optional decimal timestamps, but `source_start` defaults to zero, `source_end` must exceed it, and both must be nonnegative. Actual media-duration validation belongs to Task 02.
+4. Source bounds are optional decimal timestamps, but `source_start` defaults to zero, `source_end` must exceed it, and both must be nonnegative. A source may also contain unique `segment_search_ranges` and `segment_manual_offsets` whose stable segment IDs use that source's take. Search bounds remain inside the parent occurrence. A search range and manual offset cannot target the same segment. Source-wide `manual_offset_seconds` is mutually exclusive with search ranges, segment overrides, and additional references; segment overrides may coexist with fallbacks used by other segments. Actual media-duration validation belongs to Task 02.
 5. Parse repeated `Out`, `In`, timestamp blocks with blank lines allowed. Collapse internal whitespace in take names. Reject duplicate fields, unexpected content inside a block, incomplete blocks, malformed timestamps, non-increasing cuts, negative values, and trailing partial blocks. Header prose before the first `Out` is allowed for compatibility with the supplied example.
 6. Enforce transition continuity: normalized `cuts[n].incoming_take == cuts[n+1].outgoing_take`.
 7. Build segment 0 from the first `Out`, subsequent segments from each `In`, and stable IDs such as `segment-0001`. The last end remains absent until the probed master duration is supplied; then reject a cut at or beyond that duration.

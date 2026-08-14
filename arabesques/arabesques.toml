@@ -2,34 +2,13 @@
 schema_version = 1
 
 [project]
-timeline_name = "Arabesques — Take 9 + 1"
+timeline_name = "full timeline"
 cuts_file = "Arabesques_composite_cuts.txt"
 
 [master]
 media_pool_folder = "."
 media_pool_name = "Arabesque final Master cor 160726 .wav"
 audio_path = "/home/itaielidan/Insync/itaielidan@gmail.com/Google Drive/Scores/Arabesques/Arabesque final Master cor 160726 .wav"
-
-# Only Take 8 A and Take 8 B are video-enabled. Every other take in the cut
-# list remains audio-only, with an intentional empty interval on Video Track 1.
-# [[sources]]
-# id = "take-8-a"
-# take = "Take 8 A"
-# media_pool_folder = "Video/Multicam"
-# media_pool_name = "Take 8 multicam"
-# audio_reference_path = "media/take-8-reference.mov"
-# source_start = "00:00:00.000"
-# source_end = "00:02:10.000"
-
-# [[sources]]
-# id = "take-8-b"
-# take = "Take 8 B"
-# media_pool_folder = "Video/Multicam"
-# media_pool_name = "Take 8 multicam"
-# audio_reference_path = "media/take-8-reference.mov"
-# source_start = "00:02:25.000"
-# source_end = "00:05:20.000"
-
 
 [[sources]]
 id = "take-9"
@@ -39,8 +18,61 @@ media_pool_name = "Take 9 Multicam"
 audio_reference_path = "/home/itaielidan/Insync/itaielidan@gmail.com/Google Drive/DaVinciResolve/arabesques/Take 9 Multicam reference.wav"
 
 [[sources]]
+id = "take-8-a"
+take = "Take 8 A"
+media_pool_folder = "multicams"
+media_pool_name = "Take 8 Multicam"
+audio_reference_path = "/home/itaielidan/Insync/itaielidan@gmail.com/Google Drive/DaVinciResolve/arabesques/Take 8 Multicam reference.wav"
+source_start = "00:02:00.000"
+source_end = "00:03:52.000"
+
+
+[[sources]]
+id = "take-8-b"
+take = "Take 8 B"
+media_pool_folder = "multicams"
+media_pool_name = "Take 8 Multicam"
+audio_reference_path = "/home/itaielidan/Insync/itaielidan@gmail.com/Google Drive/DaVinciResolve/arabesques/Take 8 Multicam reference.wav"
+additional_audio_reference_paths = [ "/home/itaielidan/Insync/itaielidan@gmail.com/Google Drive/DaVinciResolve/arabesques/Take 8 Multicam reference 2.wav"]
+source_start = "00:04:05.000"
+source_end = "00:07:22.000"
+
+
+[[sources]]
 id = "take-1"
 take = "Take 1"
 media_pool_folder = "multicams"
 media_pool_name = "Take 1 multicam"
 audio_reference_path = "/home/itaielidan/Insync/itaielidan@gmail.com/Google Drive/DaVinciResolve/arabesques/Take 1 Multicam reference.wav"
+
+[[sources]]
+id = "take-2"
+take = "Take 2 A"
+media_pool_folder = "multicams"
+media_pool_name = "Take 2,6,7 Multicam"
+audio_reference_path = "/home/itaielidan/Insync/itaielidan@gmail.com/Google Drive/DaVinciResolve/arabesques/Take 2,6,7 Multicam reference.wav"
+source_start = "00:01:30.000"
+source_end = "00:03:27.000"
+
+[[sources]]
+id = "take-6"
+take = "Take 6 B"
+media_pool_folder = "multicams"
+media_pool_name = "Take 2,6,7 Multicam"
+audio_reference_path = "/home/itaielidan/Insync/itaielidan@gmail.com/Google Drive/DaVinciResolve/arabesques/Take 2,6,7 Multicam reference.wav"
+source_start = "00:06:54.000"
+source_end = "00:08:04.000"
+
+[[sources]]
+id = "take-7"
+take = "Take 7 B"
+media_pool_folder = "multicams"
+media_pool_name = "Take 2,6,7 Multicam"
+audio_reference_path = "/home/itaielidan/Insync/itaielidan@gmail.com/Google Drive/DaVinciResolve/arabesques/Take 2,6,7 Multicam reference.wav"
+# additional_audio_reference_paths = [ "/home/itaielidan/Insync/itaielidan@gmail.com/Google Drive/DaVinciResolve/arabesques/Take 2,6,7 Multicam reference 2.wav"]
+source_start = "00:11:29.000"
+source_end = "00:12:46.000"
+
+[[sources.segment_manual_offsets]]
+segment_id = "segment-0018"
+manual_offset_seconds = 517.8726761706474

@@ -19,7 +19,7 @@ Load and validate TOML/cuts, connect to the current Resolve project, resolve exa
 
 ### `analyze CONFIG --report PATH`
 
-Run validation; assign `not_provided` without decode/alignment to segments whose takes have no configured sources; decode/cache and match only video-enabled segments; construct the edit plan when all requested matches are accepted; and atomically write a report in every case. Unsafe requested matching is a normal analyzed result: write all diagnostics, print a concise rejected-segment table, and exit with the analysis-unsafe code. A report containing only `matched` and `not_provided` segments is buildable. It must not mutate Resolve.
+Run validation; assign `not_provided` without decode/alignment to segments whose takes have no configured sources; decode/cache and match only video-enabled segments; apply a configured manual offset only to its source/segment; retry an unsafe automatic primary segment match against ordered additional audio references and stop at the first safe round; construct the edit plan when all requested matches are accepted; and atomically write a report in every case. Unsafe requested matching is a normal analyzed result: write all diagnostics, print a concise rejected-segment table, and exit with the analysis-unsafe code. A report containing only `matched` and `not_provided` segments is buildable. It must not mutate Resolve.
 
 ### `build CONFIG --report PATH`
 
@@ -31,9 +31,9 @@ Use immutable Pydantic v2 models and stable JSON formatting (UTF-8, sorted keys,
 
 - `report_schema_version = 1`, package version, UTC creation time, run ID, and analysis settings;
 - canonical configuration hash and safe resolved paths;
-- project snapshot, target timeline, master/configured-source media IDs/properties/fingerprints;
+- project snapshot, target timeline, master/configured-source media IDs/properties, and fingerprints for every primary and additional audio reference;
 - normalized cuts/master segments;
-- every segment's `video_status`; candidate summary and selected `SegmentMatch` only where requested; blocker codes, warnings, manual/cached status;
+- every segment's `video_status`; candidate summary including audio-reference identity and selected `SegmentMatch` only where requested; blocker codes, warnings, manual/cached status;
 - the complete `EditPlan`, including explicit intentional video gaps, when no requested match is unsafe; otherwise `null` plus failure summary.
 
 Volatile creation time/run ID may differ across invocations, but canonical hashes and all analysis/plan fields must remain deterministic. Provide a canonical-payload helper that excludes volatile fields for equality/fingerprint tests. Write via a sibling temporary file plus `os.replace`; never leave a partial report.

@@ -448,8 +448,47 @@ def test_audio_source_time_readback_rejects_a_real_one_frame_shift() -> None:
     assert fake.media_pool.deleted
 
 
-def test_multicam_video_name_keeps_exact_label_with_resolve_track_suffix() -> None:
-    fake = make_resolve_fake(failures={"TimelineItem.GetName.video": "Take 1 video - 01 - Video 2"})
+@pytest.mark.parametrize(
+    ("getter", "value"),
+    [
+        ("TimelineItem.GetSourceStartFrame.video", 199),
+        ("TimelineItem.GetSourceEndFrame.video", 249),
+    ],
+)
+def test_video_source_frame_getters_may_truncate_by_one_frame(getter: str, value: int) -> None:
+    fake = make_resolve_fake(failures={getter: value})
+    plan = make_plan(fake)
+
+    result = gateway(fake).build_timeline(plan)
+
+    assert result.verified is True
+    assert not fake.media_pool.deleted
+
+
+@pytest.mark.parametrize(
+    ("getter", "value"),
+    [
+        ("TimelineItem.GetSourceStartFrame.video", 198),
+        ("TimelineItem.GetSourceEndFrame.video", 248),
+    ],
+)
+def test_video_source_frame_getters_reject_more_than_one_frame_truncation(
+    getter: str, value: int
+) -> None:
+    fake = make_resolve_fake(failures={getter: value})
+    plan = make_plan(fake)
+
+    with pytest.raises(ResolveBuildError, match="source frame tuple expected"):
+        gateway(fake).build_timeline(plan)
+
+    assert fake.media_pool.deleted
+
+
+@pytest.mark.parametrize("suffix", ["Angle 1", "Video 2"])
+def test_multicam_video_name_keeps_exact_label_with_resolve_track_suffix(suffix: str) -> None:
+    fake = make_resolve_fake(
+        failures={"TimelineItem.GetName.video": f"Take 1 video - 01 - {suffix}"}
+    )
     plan = make_plan(fake)
 
     result = gateway(fake).build_timeline(plan)

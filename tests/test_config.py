@@ -98,6 +98,79 @@ media_pool_name = "Take 3"
     assert spec.sources_by_take.get("Take 1", ()) == ()
 
 
+def test_additional_audio_reference_paths_are_ordered_and_resolved(tmp_path: Path) -> None:
+    absolute_reference = tmp_path / "absolute camera.wav"
+    sources = f'''
+[[sources]]
+id = "take-1"
+take = "Take 1"
+media_pool_folder = "Multicam"
+media_pool_name = "Take 1 multicam"
+audio_reference_path = "camera/primary.wav"
+additional_audio_reference_paths = [
+    "camera/second.wav",
+    "{absolute_reference}",
+]
+'''
+
+    spec = load_project_spec(_write_project(tmp_path, _base_config(sources=sources), SIMPLE_CUTS))
+
+    assert spec.sources[0].additional_audio_reference_paths == (
+        (tmp_path / "camera/second.wav").resolve(),
+        absolute_reference.resolve(),
+    )
+
+
+@pytest.mark.parametrize(
+    ("primary", "additional", "message"),
+    [
+        (
+            'audio_reference_path = "camera/primary.wav"',
+            'additional_audio_reference_paths = "camera/second.wav"',
+            "must be a TOML array",
+        ),
+        (
+            'audio_reference_path = "camera/primary.wav"',
+            'additional_audio_reference_paths = [" "]',
+            "must be a nonblank filesystem path",
+        ),
+        (
+            'audio_reference_path = "camera/primary.wav"',
+            'additional_audio_reference_paths = ["camera/second.wav", "camera/second.wav"]',
+            "must be unique",
+        ),
+        (
+            'audio_reference_path = "camera/primary.wav"',
+            'additional_audio_reference_paths = ["camera/primary.wav"]',
+            "must not repeat",
+        ),
+        (
+            "manual_offset_seconds = 1.0",
+            'additional_audio_reference_paths = ["camera/second.wav"]',
+            "manual matching does not decode audio",
+        ),
+    ],
+)
+def test_additional_audio_reference_paths_are_validated(
+    tmp_path: Path,
+    primary: str,
+    additional: str,
+    message: str,
+) -> None:
+    sources = f"""
+[[sources]]
+id = "take-1"
+take = "Take 1"
+media_pool_folder = "Multicam"
+media_pool_name = "Take 1 multicam"
+{primary}
+{additional}
+"""
+
+    with pytest.raises(ConfigError, match=message):
+        load_project_spec(_write_project(tmp_path, _base_config(sources=sources), SIMPLE_CUTS))
+
+
 @pytest.mark.parametrize("provided", [(), (2,), (2, 9), tuple(range(1, 10))])
 def test_zero_partial_and_full_coverage_of_nine_takes_is_valid(
     tmp_path: Path, provided: tuple[int, ...]
@@ -148,6 +221,227 @@ source_end = "00:05:20"
     assert spec.sources[0].audio_reference_path == spec.sources[1].audio_reference_path
     assert spec.sources[0].source_end == Decimal(130)
     assert spec.sources[1].source_start == Decimal(145)
+
+
+def test_source_can_narrow_search_bounds_for_one_matching_segment(tmp_path: Path) -> None:
+    sources = """
+[[sources]]
+id = "take-2"
+take = "Take 2"
+media_pool_folder = "Multicam"
+media_pool_name = "Take 2 multicam"
+source_start = "00:00:01"
+source_end = "00:00:30"
+
+[[sources.segment_search_ranges]]
+segment_id = "segment-0002"
+source_start = "00:00:08.125"
+source_end = "00:00:13.500"
+"""
+
+    spec = load_project_spec(_write_project(tmp_path, _base_config(sources=sources), SIMPLE_CUTS))
+
+    source = spec.sources[0]
+    search_range = source.search_range_for("segment-0002")
+    assert search_range is not None
+    assert search_range.source_start == Decimal("8.125")
+    assert search_range.source_end == Decimal("13.500")
+    assert source.search_range_for("segment-0001") is None
+
+
+def test_source_can_override_one_segment_manually_without_disabling_other_controls(
+    tmp_path: Path,
+) -> None:
+    cuts = "Out: Take 2\nIn: Take 1\n00:00:10\n\nOut: Take 1\nIn: Take 2\n00:00:20\n"
+    sources = """
+[[sources]]
+id = "take-2"
+take = "Take 2"
+media_pool_folder = "Multicam"
+media_pool_name = "Take 2 multicam"
+audio_reference_path = "camera/primary.wav"
+additional_audio_reference_paths = ["camera/fallback.wav"]
+source_start = "00:00:01"
+source_end = "00:01:00"
+
+[[sources.segment_manual_offsets]]
+segment_id = "segment-0001"
+manual_offset_seconds = 17.25
+
+[[sources.segment_search_ranges]]
+segment_id = "segment-0003"
+source_start = "00:00:40"
+source_end = "00:00:55"
+"""
+
+    spec = load_project_spec(_write_project(tmp_path, _base_config(sources=sources), cuts))
+
+    source = spec.sources[0]
+    assert source.manual_offset_for("segment-0001") == Decimal("17.25")
+    assert source.manual_offset_for("segment-0003") is None
+    assert source.search_range_for("segment-0001") is None
+    assert source.search_range_for("segment-0003") is not None
+    assert source.additional_audio_reference_paths == (
+        (tmp_path / "camera/fallback.wav").resolve(),
+    )
+
+
+@pytest.mark.parametrize(
+    ("configuration", "message"),
+    [
+        (
+            """[[sources.segment_manual_offsets]]
+segment_id = "segment-9999"
+manual_offset_seconds = 2.0""",
+            "unknown segment",
+        ),
+        (
+            """[[sources.segment_manual_offsets]]
+segment_id = "segment-0001"
+manual_offset_seconds = 2.0""",
+            "does not use source take",
+        ),
+        (
+            """[[sources.segment_manual_offsets]]
+segment_id = "segment-0002"
+manual_offset_seconds = 2.0
+
+[[sources.segment_manual_offsets]]
+segment_id = "segment-0002"
+manual_offset_seconds = 3.0""",
+            "must be unique",
+        ),
+        (
+            '''[[sources.segment_manual_offsets]]
+segment_id = "segment-0002"
+manual_offset_seconds = "2.0"''',
+            "finite numeric TOML value",
+        ),
+        (
+            """[[sources.segment_search_ranges]]
+segment_id = "segment-0002"
+source_start = "00:00:08"
+source_end = "00:00:13"
+
+[[sources.segment_manual_offsets]]
+segment_id = "segment-0002"
+manual_offset_seconds = 2.0""",
+            "cannot both configure the same segment",
+        ),
+        (
+            """manual_offset_seconds = 1.0
+
+[[sources.segment_manual_offsets]]
+segment_id = "segment-0002"
+manual_offset_seconds = 2.0""",
+            "cannot be combined with the source-wide",
+        ),
+    ],
+)
+def test_segment_manual_offsets_are_cross_validated(
+    tmp_path: Path, configuration: str, message: str
+) -> None:
+    sources = f"""
+[[sources]]
+id = "take-2"
+take = "Take 2"
+media_pool_folder = "Multicam"
+media_pool_name = "Take 2 multicam"
+source_start = "00:00:01"
+source_end = "00:00:30"
+{configuration}
+"""
+
+    with pytest.raises(ConfigError, match=message):
+        load_project_spec(_write_project(tmp_path, _base_config(sources=sources), SIMPLE_CUTS))
+
+
+@pytest.mark.parametrize(
+    ("ranges", "message"),
+    [
+        (
+            '''[[sources.segment_search_ranges]]
+segment_id = "segment-9999"
+source_start = "00:00:08"
+source_end = "00:00:13"''',
+            "unknown segment",
+        ),
+        (
+            '''[[sources.segment_search_ranges]]
+segment_id = "segment-0001"
+source_start = "00:00:08"
+source_end = "00:00:13"''',
+            "does not use source take",
+        ),
+        (
+            '''[[sources.segment_search_ranges]]
+segment_id = "segment-0002"
+source_start = "00:00:08"
+source_end = "00:00:13"
+
+[[sources.segment_search_ranges]]
+segment_id = "segment-0002"
+source_start = "00:00:14"
+source_end = "00:00:18"''',
+            "must be unique",
+        ),
+        (
+            '''[[sources.segment_search_ranges]]
+segment_id = "segment-0002"
+source_start = "00:00:00"
+source_end = "00:00:13"''',
+            "start at or after",
+        ),
+        (
+            '''[[sources.segment_search_ranges]]
+segment_id = "segment-0002"
+source_start = "00:00:08"
+source_end = "00:00:31"''',
+            "end at or before",
+        ),
+        (
+            '''[[sources.segment_search_ranges]]
+segment_id = "segment-0002"
+source_start = "00:00:08"
+source_end = "00:00:08"''',
+            "must be greater than",
+        ),
+    ],
+)
+def test_segment_search_ranges_are_cross_validated(
+    tmp_path: Path, ranges: str, message: str
+) -> None:
+    sources = f"""\n[[sources]]
+id = "take-2"
+take = "Take 2"
+media_pool_folder = "Multicam"
+media_pool_name = "Take 2 multicam"
+source_start = "00:00:01"
+source_end = "00:00:30"
+{ranges}
+"""
+
+    with pytest.raises(ConfigError, match=message):
+        load_project_spec(_write_project(tmp_path, _base_config(sources=sources), SIMPLE_CUTS))
+
+
+def test_segment_search_ranges_cannot_be_combined_with_manual_matching(tmp_path: Path) -> None:
+    sources = """
+[[sources]]
+id = "take-2"
+take = "Take 2"
+media_pool_folder = "Multicam"
+media_pool_name = "Take 2 multicam"
+manual_offset_seconds = 2.0
+
+[[sources.segment_search_ranges]]
+segment_id = "segment-0002"
+source_start = "00:00:08"
+source_end = "00:00:13"
+"""
+
+    with pytest.raises(ConfigError, match="manual matching does not search"):
+        load_project_spec(_write_project(tmp_path, _base_config(sources=sources), SIMPLE_CUTS))
 
 
 def test_absolute_paths_are_preserved_and_normalized(tmp_path: Path) -> None:

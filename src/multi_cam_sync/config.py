@@ -99,9 +99,12 @@ def load_project_spec(path: Path) -> ProjectSpec:
         "media_pool_folder",
         "media_pool_name",
         "audio_reference_path",
+        "additional_audio_reference_paths",
         "source_start",
         "source_end",
         "manual_offset_seconds",
+        "segment_search_ranges",
+        "segment_manual_offsets",
     }
     for index, source_value in enumerate(source_values):
         if not isinstance(source_value, dict):
@@ -121,6 +124,30 @@ def load_project_spec(path: Path) -> ProjectSpec:
             except ConfigError as error:
                 errors.append(str(error))
                 source_data.pop("audio_reference_path", None)
+        if "additional_audio_reference_paths" in source_data:
+            additional_values = source_data["additional_audio_reference_paths"]
+            if not isinstance(additional_values, list):
+                errors.append(
+                    f"sources.{index}.additional_audio_reference_paths must be a TOML array"
+                )
+                source_data.pop("additional_audio_reference_paths", None)
+            else:
+                additional_paths: list[Path] = []
+                for reference_index, additional_value in enumerate(additional_values):
+                    try:
+                        additional_paths.append(
+                            _resolved_path(
+                                additional_value,
+                                base=config_path.parent,
+                                key=(
+                                    f"sources.{index}.additional_audio_reference_paths."
+                                    f"{reference_index}"
+                                ),
+                            )
+                        )
+                    except ConfigError as error:
+                        errors.append(str(error))
+                source_data["additional_audio_reference_paths"] = tuple(additional_paths)
         try:
             sources.append(SourceSpec.model_validate(source_data))
         except ValidationError as error:
@@ -168,9 +195,42 @@ def load_project_spec(path: Path) -> ProjectSpec:
 
     used_take_keys = {segment.take_key for segment in segments}
     unused = [source for source in spec.sources if source.take_key not in used_take_keys]
+    cross_errors: list[str] = []
     if unused:
         details = ", ".join(f"{source.id} ({source.take})" for source in unused)
-        raise ConfigError(
+        cross_errors.append(
             f"configured sources must reference takes used by project.cuts_file; unused: {details}"
+        )
+    segments_by_id = {segment.id: segment for segment in segments}
+    for source in spec.sources:
+        for search_range in source.segment_search_ranges:
+            segment = segments_by_id.get(search_range.segment_id)
+            if segment is None:
+                cross_errors.append(
+                    f"source {source.id!r} segment_search_ranges references unknown segment "
+                    f"{search_range.segment_id!r}"
+                )
+            elif segment.take_key != source.take_key:
+                cross_errors.append(
+                    f"source {source.id!r} segment_search_ranges references "
+                    f"{search_range.segment_id!r} ({segment.display_take}), which does not "
+                    f"use source take {source.take!r}"
+                )
+        for override in source.segment_manual_offsets:
+            segment = segments_by_id.get(override.segment_id)
+            if segment is None:
+                cross_errors.append(
+                    f"source {source.id!r} segment_manual_offsets references unknown segment "
+                    f"{override.segment_id!r}"
+                )
+            elif segment.take_key != source.take_key:
+                cross_errors.append(
+                    f"source {source.id!r} segment_manual_offsets references "
+                    f"{override.segment_id!r} ({segment.display_take}), which does not "
+                    f"use source take {source.take!r}"
+                )
+    if cross_errors:
+        raise ConfigError(
+            format_validation_errors(f"invalid configuration {config_path}", cross_errors)
         )
     return spec
