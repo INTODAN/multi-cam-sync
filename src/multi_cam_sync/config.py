@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import tomllib
+from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
@@ -10,7 +11,13 @@ from pydantic import ValidationError
 
 from multi_cam_sync.cuts import build_master_segments, parse_cut_list
 from multi_cam_sync.domain.errors import ConfigError, CutListError, format_validation_errors
-from multi_cam_sync.domain.models import MasterSpec, ProjectSettings, ProjectSpec, SourceSpec
+from multi_cam_sync.domain.models import (
+    MasterSegment,
+    MasterSpec,
+    ProjectSettings,
+    ProjectSpec,
+    SourceSpec,
+)
 
 
 def _resolved_path(value: object, *, base: Path, key: str) -> Path:
@@ -38,8 +45,57 @@ def _table(value: object, key: str, errors: list[str]) -> dict[str, Any]:
     return {}
 
 
-def load_project_spec(path: Path) -> ProjectSpec:
-    """Load, resolve, and cross-validate a version-1 project and its cut list."""
+def validate_project_segments(spec: ProjectSpec, segments: tuple[MasterSegment, ...]) -> None:
+    """Cross-validate configured source controls against parsed master segments."""
+    used_take_keys = {segment.take_key for segment in segments}
+    unused = [source for source in spec.sources if source.take_key not in used_take_keys]
+    cross_errors: list[str] = []
+    if unused:
+        details = ", ".join(f"{source.id} ({source.take})" for source in unused)
+        cross_errors.append(
+            f"configured sources must reference takes used by project.cuts_file; unused: {details}"
+        )
+    segments_by_id = {segment.id: segment for segment in segments}
+    for source in spec.sources:
+        for search_range in source.segment_search_ranges:
+            segment = segments_by_id.get(search_range.segment_id)
+            if segment is None:
+                cross_errors.append(
+                    f"source {source.id!r} segment_search_ranges references unknown segment "
+                    f"{search_range.segment_id!r}"
+                )
+            elif segment.take_key != source.take_key:
+                cross_errors.append(
+                    f"source {source.id!r} segment_search_ranges references "
+                    f"{search_range.segment_id!r} ({segment.display_take}), which does not "
+                    f"use source take {source.take!r}"
+                )
+        for override in source.segment_manual_offsets:
+            segment = segments_by_id.get(override.segment_id)
+            if segment is None:
+                cross_errors.append(
+                    f"source {source.id!r} segment_manual_offsets references unknown segment "
+                    f"{override.segment_id!r}"
+                )
+            elif segment.take_key != source.take_key:
+                cross_errors.append(
+                    f"source {source.id!r} segment_manual_offsets references "
+                    f"{override.segment_id!r} ({segment.display_take}), which does not "
+                    f"use source take {source.take!r}"
+                )
+    if cross_errors:
+        raise ConfigError(
+            format_validation_errors(f"invalid configuration {spec.config_path}", cross_errors)
+        )
+
+
+def load_project_spec(
+    path: Path,
+    *,
+    cut_frame_rate: Fraction | None = None,
+    defer_cut_validation: bool = False,
+) -> ProjectSpec:
+    """Load and cross-validate a project, optionally deferring cuts until Resolve is read."""
     config_path = path.expanduser().resolve(strict=False)
     try:
         with config_path.open("rb") as stream:
@@ -182,6 +238,9 @@ def load_project_spec(path: Path) -> ProjectSpec:
             )
         ) from error
 
+    if defer_cut_validation:
+        return spec
+
     try:
         cut_text = spec.project.cuts_file.read_text(encoding="utf-8-sig")
     except OSError as error:
@@ -189,48 +248,8 @@ def load_project_spec(path: Path) -> ProjectSpec:
             f"cannot read project.cuts_file {spec.project.cuts_file}: {error.strerror or error}"
         ) from error
     try:
-        segments = build_master_segments(parse_cut_list(cut_text))
+        segments = build_master_segments(parse_cut_list(cut_text, frame_rate=cut_frame_rate))
     except CutListError as error:
         raise ConfigError(f"project.cuts_file {spec.project.cuts_file}: {error}") from error
-
-    used_take_keys = {segment.take_key for segment in segments}
-    unused = [source for source in spec.sources if source.take_key not in used_take_keys]
-    cross_errors: list[str] = []
-    if unused:
-        details = ", ".join(f"{source.id} ({source.take})" for source in unused)
-        cross_errors.append(
-            f"configured sources must reference takes used by project.cuts_file; unused: {details}"
-        )
-    segments_by_id = {segment.id: segment for segment in segments}
-    for source in spec.sources:
-        for search_range in source.segment_search_ranges:
-            segment = segments_by_id.get(search_range.segment_id)
-            if segment is None:
-                cross_errors.append(
-                    f"source {source.id!r} segment_search_ranges references unknown segment "
-                    f"{search_range.segment_id!r}"
-                )
-            elif segment.take_key != source.take_key:
-                cross_errors.append(
-                    f"source {source.id!r} segment_search_ranges references "
-                    f"{search_range.segment_id!r} ({segment.display_take}), which does not "
-                    f"use source take {source.take!r}"
-                )
-        for override in source.segment_manual_offsets:
-            segment = segments_by_id.get(override.segment_id)
-            if segment is None:
-                cross_errors.append(
-                    f"source {source.id!r} segment_manual_offsets references unknown segment "
-                    f"{override.segment_id!r}"
-                )
-            elif segment.take_key != source.take_key:
-                cross_errors.append(
-                    f"source {source.id!r} segment_manual_offsets references "
-                    f"{override.segment_id!r} ({segment.display_take}), which does not "
-                    f"use source take {source.take!r}"
-                )
-    if cross_errors:
-        raise ConfigError(
-            format_validation_errors(f"invalid configuration {config_path}", cross_errors)
-        )
+    validate_project_segments(spec, segments)
     return spec

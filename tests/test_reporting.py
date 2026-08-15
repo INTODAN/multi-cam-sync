@@ -156,6 +156,26 @@ def test_canonical_payload_excludes_only_volatile_fields() -> None:
     assert canonical_payload(first) == canonical_payload(second)
 
 
+def test_unsafe_manual_offset_suggestion_round_trips_as_exact_decimal(tmp_path: Path) -> None:
+    report = _report()
+    unsafe = replace(
+        report.segments[0],
+        video_status=VideoStatus.UNSAFE,
+        blockers=("excess_drift",),
+        suggested_manual_offset_seconds=Decimal("517.9618346057689"),
+    )
+    report = replace(report, segments=(unsafe, report.segments[1]), plan=None)
+
+    path = tmp_path / "unsafe-report.json"
+    write_report(path, report)
+    loaded = read_report(path)
+
+    assert loaded.segments[0].suggested_manual_offset_seconds == Decimal("517.9618346057689")
+    assert '"suggested_manual_offset_seconds": "517.9618346057689"' in path.read_text(
+        encoding="utf-8"
+    )
+
+
 def test_report_rejects_unknown_schema_and_invalid_json(tmp_path: Path) -> None:
     path = tmp_path / "report.json"
     path.write_text('{"report_schema_version": 999}', encoding="utf-8")

@@ -69,6 +69,8 @@ def test_readme_documents_commands_and_partial_video_safety_contract() -> None:
         "build is blocked",
         "master audio continues on Audio Track 1",
         "sources.segment_manual_offsets",
+        "suggested_manual_offset_seconds",
+        "HH:MM:SS:FF",
     ):
         assert required_text in normalized_readme
 

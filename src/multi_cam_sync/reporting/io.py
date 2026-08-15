@@ -191,6 +191,11 @@ def report_to_dict(report: AlignmentReport) -> dict[str, object]:
                     if segment.source_out_seconds is not None
                     else None
                 ),
+                "suggested_manual_offset_seconds": (
+                    str(segment.suggested_manual_offset_seconds)
+                    if segment.suggested_manual_offset_seconds is not None
+                    else None
+                ),
                 "method": segment.method,
                 "blockers": list(segment.blockers),
                 "warnings": list(segment.warnings),
@@ -469,6 +474,10 @@ def report_from_dict(value: object) -> AlignmentReport:
                 source_id=_optional_text(item.get("source_id"), "source_id"),
                 source_in_seconds=_optional_decimal(item.get("source_in_seconds"), "source_in"),
                 source_out_seconds=_optional_decimal(item.get("source_out_seconds"), "source_out"),
+                suggested_manual_offset_seconds=_optional_decimal(
+                    item.get("suggested_manual_offset_seconds"),
+                    "suggested_manual_offset_seconds",
+                ),
                 method=_optional_text(item.get("method"), "method"),
                 blockers=tuple(str(entry) for entry in _list(item.get("blockers", []), "blockers")),
                 warnings=tuple(str(entry) for entry in _list(item.get("warnings", []), "warnings")),

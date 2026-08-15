@@ -45,6 +45,7 @@ class SegmentReport:
     warnings: tuple[str, ...] = ()
     diagnostics: Mapping[str, object] | None = None
     candidates: tuple[Mapping[str, object], ...] = ()
+    suggested_manual_offset_seconds: Decimal | None = None
 
 
 @dataclass(frozen=True, slots=True)

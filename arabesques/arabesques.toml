@@ -69,10 +69,6 @@ take = "Take 7 B"
 media_pool_folder = "multicams"
 media_pool_name = "Take 2,6,7 Multicam"
 audio_reference_path = "/home/itaielidan/Insync/itaielidan@gmail.com/Google Drive/DaVinciResolve/arabesques/Take 2,6,7 Multicam reference.wav"
-# additional_audio_reference_paths = [ "/home/itaielidan/Insync/itaielidan@gmail.com/Google Drive/DaVinciResolve/arabesques/Take 2,6,7 Multicam reference 2.wav"]
+additional_audio_reference_paths = [ "/home/itaielidan/Insync/itaielidan@gmail.com/Google Drive/DaVinciResolve/arabesques/Take 2,6,7 Multicam reference 2.wav"]
 source_start = "00:11:29.000"
 source_end = "00:12:46.000"
-
-[[sources.segment_manual_offsets]]
-segment_id = "segment-0018"
-manual_offset_seconds = 517.8726761706474

@@ -18,11 +18,12 @@ from multi_cam_sync.alignment import (
     AlignmentSettings,
     CandidateMatch,
     MatchDiagnostics,
+    MatchMethod,
     SegmentMatch,
     SegmentMatcher,
     SegmentRequest,
 )
-from multi_cam_sync.config import load_project_spec
+from multi_cam_sync.config import load_project_spec, validate_project_segments
 from multi_cam_sync.cuts import build_master_segments, parse_cut_list
 from multi_cam_sync.domain import MasterSegment, ProjectSpec, SourceSpec
 from multi_cam_sync.media import (
@@ -180,6 +181,38 @@ def _diagnostics_dict(value: MatchDiagnostics) -> Mapping[str, object]:
 
 def _candidate_dict(value: CandidateMatch) -> Mapping[str, object]:
     return cast("Mapping[str, object]", asdict(value))
+
+
+def _suggested_manual_offset_seconds(
+    segment: MasterSegment,
+    match: SegmentMatch,
+    source: SourceSpec | None,
+    source_duration_seconds: Decimal | None,
+) -> Decimal | None:
+    """Return an actionable unity-speed offset for a located unsafe automatic match."""
+    if match.safe_for_planning or match.method is not MatchMethod.AUTOMATIC or source is None:
+        return None
+    source_in = match.source_in_seconds
+    source_out = match.source_out_seconds
+    segment_end = segment.end_seconds
+    if (
+        source_in is None
+        or source_out is None
+        or segment_end is None
+        or source_duration_seconds is None
+        or not source_in.is_finite()
+        or not source_out.is_finite()
+    ):
+        return None
+    expected_source_out = source_in + (segment_end - segment.start_seconds)
+    source_end = source.source_end or source_duration_seconds
+    if (
+        source_out != expected_source_out
+        or source_in < source.source_start
+        or source_out > source_end
+    ):
+        return None
+    return source_in - segment.start_seconds
 
 
 def _audio_reference_id(reference_index: int) -> str:
@@ -420,7 +453,7 @@ class MultiCamSyncService:
 
     def validate(self, config_path: Path) -> ValidationContext:
         """Perform every read-only check that does not require full audio decode."""
-        spec = load_project_spec(config_path)
+        spec = load_project_spec(config_path, defer_cut_validation=True)
         config_bytes = _read_bytes(spec.config_path, "configuration")
         cuts_bytes = _read_bytes(spec.project.cuts_file, "cut list")
         try:
@@ -429,8 +462,6 @@ class MultiCamSyncService:
             raise ServiceInputError(
                 f"cut list is not valid UTF-8: {spec.project.cuts_file}"
             ) from error
-        cuts = parse_cut_list(cuts_text)
-
         master_selector = _selector(
             spec.master.media_pool_folder, spec.master.media_pool_name, "master"
         )
@@ -449,6 +480,13 @@ class MultiCamSyncService:
                 "validate target timeline",
                 f"timeline {spec.project.timeline_name!r} already exists",
             )
+
+        timeline_rate = FrameRate.parse(snapshot.timeline_frame_rate)
+        cuts = parse_cut_list(
+            cuts_text,
+            frame_rate=Fraction(timeline_rate.numerator, timeline_rate.denominator),
+        )
+        validate_project_segments(spec, build_master_segments(cuts))
 
         master_item = _snapshot_item(snapshot, master_selector)
         source_items = {
@@ -733,6 +771,16 @@ class MultiCamSyncService:
                     warnings=match.warnings,
                     diagnostics=_diagnostics_dict(match.diagnostics),
                     candidates=tuple(_candidate_dict(candidate) for candidate in match.candidates),
+                    suggested_manual_offset_seconds=_suggested_manual_offset_seconds(
+                        segment,
+                        match,
+                        source_spec,
+                        (
+                            context.source_probes[source_spec.id].duration_seconds
+                            if source_spec is not None
+                            else None
+                        ),
+                    ),
                 )
             )
 

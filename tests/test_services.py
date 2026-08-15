@@ -94,9 +94,11 @@ class FakeMatcher:
         *,
         unsafe: bool = False,
         unsafe_reference_ids: frozenset[str] = frozenset(),
+        automatic_offset_seconds: Decimal = Decimal(1),
     ) -> None:
         self.unsafe = unsafe
         self.unsafe_reference_ids = unsafe_reference_ids
+        self.automatic_offset_seconds = automatic_offset_seconds
         self.calls: list[SegmentRequest] = []
         self.candidate_calls: list[tuple[AlignmentCandidate, ...]] = []
 
@@ -119,7 +121,7 @@ class FakeMatcher:
         source_in = segment.master_start_seconds + (
             selected.manual_offset_seconds
             if selected.manual_offset_seconds is not None
-            else Decimal(1)
+            else self.automatic_offset_seconds
         )
         source_out = source_in + segment.duration_seconds
         unsafe = method is MatchMethod.AUTOMATIC and (
@@ -293,6 +295,9 @@ def test_validate_and_partial_analysis_have_zero_resolve_mutations(tmp_path: Pat
         VideoStatus.NOT_PROVIDED,
         VideoStatus.MATCHED,
     ]
+    assert all(
+        segment.suggested_manual_offset_seconds is None for segment in outcome.report.segments
+    )
     assert [request.segment_id for request in matcher.calls] == [
         "segment-0001",
         "segment-0003",
@@ -314,6 +319,25 @@ def test_validate_and_partial_analysis_have_zero_resolve_mutations(tmp_path: Pat
         left.record_end_frame == right.record_start_frame
         for left, right in zip(plan.audio_clips, plan.audio_clips[1:], strict=False)
     )
+
+
+def test_validation_uses_resolve_timeline_rate_for_frame_cut_timestamps(tmp_path: Path) -> None:
+    config, _, _, gateway, reader, matcher, service = _system(tmp_path)
+    (tmp_path / "cuts.txt").write_text(
+        "Out: Take A\nIn: Take B\n00:00:02:12\n\nOut: Take B\nIn: Take A\n00:00:04:06\n",
+        encoding="utf-8",
+    )
+
+    context = service.validate(config)
+
+    assert [segment.start_seconds for segment in context.segments] == [
+        Decimal(0),
+        Decimal("2.5"),
+        Decimal("4.25"),
+    ]
+    assert len(gateway.snapshot_calls) == 1
+    assert reader.audio_requests == []
+    assert matcher.calls == []
 
 
 def test_analysis_applies_one_segment_search_range_without_extra_decode(tmp_path: Path) -> None:
@@ -597,9 +621,28 @@ def test_unsafe_requested_take_blocks_plan_and_build(tmp_path: Path) -> None:
     assert outcome.unsafe_count == 2
     assert outcome.report.plan is None
     assert len(matcher.calls) == 2
+    assert [
+        segment.suggested_manual_offset_seconds
+        for segment in outcome.report.segments
+        if segment.video_status is VideoStatus.UNSAFE
+    ] == [Decimal(1), Decimal(1)]
     with pytest.raises(ServiceInputError, match="no safe edit plan"):
         service.build(config, outcome.report)
     assert gateway.build_calls == []
+
+
+def test_unsafe_out_of_bounds_location_has_no_manual_offset_suggestion(tmp_path: Path) -> None:
+    config, _, _, _, _, matcher, service = _system(tmp_path, unsafe=True)
+    matcher.automatic_offset_seconds = Decimal(19)
+
+    outcome = service.analyze(config)
+
+    assert outcome.unsafe_count == 2
+    assert all(
+        segment.suggested_manual_offset_seconds is None
+        for segment in outcome.report.segments
+        if segment.video_status is VideoStatus.UNSAFE
+    )
 
 
 def test_changed_input_and_tampered_plan_never_mutate_resolve(tmp_path: Path) -> None:

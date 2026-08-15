@@ -70,6 +70,14 @@ In:  Take 7 B
 00:02:55.564
 
 Out: Take 7 B
+In:  Take 7 B
+00:03:05:10
+
+Out: Take 7 B
+In:  Take 7 B
+00:03:08:13
+
+Out: Take 7 B
 In:  Take 8 B
 00:03:27.015
 

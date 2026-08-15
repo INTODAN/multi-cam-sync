@@ -1,4 +1,5 @@
 from decimal import Decimal
+from fractions import Fraction
 from pathlib import Path
 
 import pytest
@@ -41,6 +42,37 @@ def test_headers_blank_lines_crlf_and_case_insensitive_fields_are_accepted() -> 
     assert transitions[0].outgoing_take == "Take 1"
     assert transitions[0].master_time == Decimal("1.0000001")
     assert transitions[1].outgoing_take_key == "Take 2"
+
+
+def test_decimal_and_frame_timestamps_can_be_mixed_without_ambiguity() -> None:
+    text = "Out: Take 1\nIn: Take 2\n00:03:05.100\n\nOut: Take 2\nIn: Take 3\n00:03:08:13\n"
+
+    transitions = parse_cut_list(text, frame_rate=Fraction(24))
+
+    assert transitions[0].master_time == Decimal("185.100")
+    assert transitions[1].master_time == Decimal(4525) / Decimal(24)
+
+
+def test_three_field_timestamp_remains_decimal_seconds_when_frame_rate_is_available() -> None:
+    transitions = parse_cut_list(
+        "Out: Take 1\nIn: Take 2\n00:03:08\n",
+        frame_rate=Fraction(24),
+    )
+
+    assert transitions[0].master_time == Decimal(188)
+
+
+def test_frame_timestamp_requires_a_timeline_frame_rate() -> None:
+    with pytest.raises(CutListError, match="requires the active Resolve timeline frame rate"):
+        parse_cut_list("Out: Take 1\nIn: Take 2\n00:03:08:13\n")
+
+
+def test_drop_frame_cut_timestamp_is_rejected_explicitly() -> None:
+    with pytest.raises(CutListError, match="drop-frame cut timecode is not supported"):
+        parse_cut_list(
+            "Out: Take 1\nIn: Take 2\n00:03:08;13\n",
+            frame_rate=Fraction(30000, 1001),
+        )
 
 
 @pytest.mark.parametrize(

@@ -106,6 +106,13 @@ def _analysis_summary(outcome, report_path: Path, stream: TextIO) -> None:  # ty
         if segment.video_status.value == "unsafe":
             reason = ", ".join(segment.blockers) or "unknown blocker"
             print(f"  {segment.segment_id} ({segment.take}): {reason}", file=stream)
+            if segment.suggested_manual_offset_seconds is not None:
+                print(
+                    "    Suggested for "
+                    f"source {segment.source_id!r}: manual_offset_seconds = "
+                    f"{segment.suggested_manual_offset_seconds}",
+                    file=stream,
+                )
 
 
 def main(

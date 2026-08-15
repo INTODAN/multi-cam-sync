@@ -30,7 +30,7 @@ Media Pool items are selected by exact folder path plus exact item name. A missi
 
 ### 3.2 Cut list
 
-The existing text format remains supported:
+The existing decimal-seconds text format remains supported:
 
 ```text
 Out: Take 8 A
@@ -38,7 +38,7 @@ In:  Take 2 A
 00:00:19.375
 ```
 
-Whitespace around take names is trimmed and internal runs of whitespace are collapsed. Timestamps are decimal `HH:MM:SS.mmm` positions relative to the beginning of the master audio, not SMPTE timecode.
+Whitespace around take names is trimmed and internal runs of whitespace are collapsed. Each timestamp is a position relative to the beginning of the master audio and may use either decimal `HH:MM:SS[.fraction]` or non-drop frame timecode `HH:MM:SS:FF`. Frame timecode uses the active Resolve timeline frame rate; for example, `00:03:08:13` at 24 fps is `188 + 13/24` seconds. The four fields and leading hour field are required for frame timecode so an existing three-field value such as `00:03:08` remains unambiguously decimal hours, minutes, and seconds. Frame numbers must fit the nominal timeline rate. Drop-frame semicolon notation is not supported.
 
 The parser must reject incomplete blocks, invalid or non-increasing timestamps, adjacent transition mismatches, timestamps outside the master duration, and a cut list with no transitions. The first `Out` value is the first segment's take; every `In` value becomes the next segment's take. Every previous `In` must equal the next `Out` after normalization.
 
@@ -124,7 +124,7 @@ The installed command is `multi-cam-sync` and exposes:
 - `multi-cam-sync analyze CONFIG --report PATH`: perform audio alignment and write a deterministic JSON alignment report without changing Resolve;
 - `multi-cam-sync build CONFIG --report PATH`: verify that the report still matches all input fingerprints, preflight the entire edit, and create the timeline.
 
-The report contains the schema version, tool version, configuration hash, input fingerprints, Resolve project/timeline frame rates, every master segment, its `video_status` (`not_provided`, `matched`, or `unsafe`), the selected source occurrence when applicable, source in/out seconds, timeline/source frame boundaries, DTW diagnostics, confidence status, warnings, and whether a manual override was used.
+The report contains the schema version, tool version, configuration hash, input fingerprints, Resolve project/timeline frame rates, every master segment, its `video_status` (`not_provided`, `matched`, or `unsafe`), the selected source occurrence when applicable, source in/out seconds, a suggested segment-specific manual offset when an unsafe automatic match still provides an in-bounds unity-speed location, timeline/source frame boundaries, DTW diagnostics, confidence status, warnings, and whether a manual override was used.
 
 `build` refuses stale reports, an `unsafe` segment for any video-enabled take, unresolved configured media, an existing timeline with the requested name, or a changed Resolve project. `not_provided` segments do not block building. There is no replace mode in V1.
 
@@ -165,6 +165,8 @@ A result for a video-enabled segment is low confidence, receives `video_status =
 - the segment is too short to produce the MFCC/delta windows required by the configured analysis.
 
 The timeline uses unity-speed source media. The mapped source start is used as the source in-point, and the source out-point is derived from the exact master segment duration. DTW is a locator and confidence mechanism, not a request to warp or resynthesize the performance.
+
+When an unsafe automatic result still contains a concrete source in/out interval that fits the selected source occurrence at unity speed, its segment report includes `suggested_manual_offset_seconds = source_in_seconds - master_start_seconds`. This is an unverified review aid, not an automatic acceptance: analysis remains unsafe and `build` remains blocked until the user explicitly adds the value as a segment-specific manual override and reruns analysis. Failed or out-of-bounds locations have no suggestion. A segment search range for the same segment must be removed when replacing it with the suggested manual offset.
 
 ### 5.3 Audio decoding and cache
 

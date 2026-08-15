@@ -210,8 +210,12 @@ In:  Take 2 A
 00:00:19.375
 ```
 
-Times are positions from the start of the master, not SMPTE timecode. Adjacent blocks must
-join (`In` from one equals `Out` from the next), and transition times must increase.
+Times are positions from the start of the master. Use either decimal
+`HH:MM:SS[.fraction]` or non-drop frame timecode `HH:MM:SS:FF`. Frame timecode uses the
+active Resolve timeline rate, so `00:03:08:13` means 3 minutes, 8 seconds, and 13 frames.
+Keep all four fields for frame timecode; `00:03:08` retains its existing decimal meaning of
+3 minutes and 8 seconds. Drop-frame semicolon notation is not supported. Adjacent blocks
+must join (`In` from one equals `Out` from the next), and transition times must increase.
 
 ### Partial video is intentional
 
@@ -254,7 +258,7 @@ invoke `multi-cam-sync` directly.
 2. `analyze` decodes and matches only supplied takes, then atomically writes deterministic
    report JSON. It never mutates Resolve, including when a match is unsafe.
 3. Review each segment's status, selected source and bounds, blockers, warnings, candidate
-   diagnostics, cache/manual flags, and the embedded edit plan.
+   diagnostics, cache/manual flags, any suggested manual offset, and the embedded edit plan.
 4. `build` rechecks the configuration, file fingerprints, Resolve snapshot, report schema,
    settings, and plan before making one new timeline. It never re-analyzes implicitly.
 
@@ -284,6 +288,9 @@ For recovery:
 
 - fix a bad selector, source bound, or reference path, then rerun `validate` and `analyze`;
 - narrow occurrence bounds when repeated music makes candidates ambiguous;
+- for an unsafe located match, review `suggested_manual_offset_seconds` in the report or CLI
+  output; it is the selected source in-point minus the master start and is never applied
+  automatically;
 - use a numeric source-wide or segment-specific `manual_offset_seconds` only after measuring
   it, and review its report warning;
 - rerun `analyze` whenever `build` reports stale inputs;

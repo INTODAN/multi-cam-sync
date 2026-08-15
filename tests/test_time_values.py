@@ -1,4 +1,5 @@
 from decimal import Decimal
+from fractions import Fraction
 
 import pytest
 
@@ -8,6 +9,7 @@ from multi_cam_sync.time_values import (
     normalize_take_name,
     parse_decimal_seconds,
     parse_decimal_timestamp,
+    parse_frame_timestamp,
 )
 
 
@@ -35,6 +37,41 @@ def test_parse_decimal_timestamp_is_exact(value: str, expected: Decimal) -> None
 def test_parse_decimal_timestamp_rejects_invalid_ranges_and_shapes(value: str) -> None:
     with pytest.raises(TimeValueError, match="timestamp"):
         parse_decimal_timestamp(value)
+
+
+@pytest.mark.parametrize(
+    ("value", "frame_rate", "expected_frames"),
+    [
+        ("00:03:08:13", Fraction(24), 4525),
+        ("01:00:00:00", Fraction(24), 86400),
+        ("00:01:00:00", Fraction(24000, 1001), 1440),
+    ],
+)
+def test_parse_frame_timestamp_uses_exact_non_drop_frame_coordinates(
+    value: str, frame_rate: Fraction, expected_frames: int
+) -> None:
+    result = parse_frame_timestamp(value, frame_rate)
+
+    assert result == (
+        Decimal(expected_frames * frame_rate.denominator) / Decimal(frame_rate.numerator)
+    )
+    assert isinstance(result, Decimal)
+
+
+@pytest.mark.parametrize(
+    ("value", "frame_rate", "message"),
+    [
+        ("00:00:01:24", Fraction(24), "00 to 23"),
+        ("00:00:01:30", Fraction(30000, 1001), "00 to 29"),
+        ("00:00:01;12", Fraction(24), "non-drop"),
+        ("00:00:01:12", Fraction(0), "positive"),
+    ],
+)
+def test_parse_frame_timestamp_rejects_invalid_frames_and_shapes(
+    value: str, frame_rate: Fraction, message: str
+) -> None:
+    with pytest.raises(TimeValueError, match=message):
+        parse_frame_timestamp(value, frame_rate)
 
 
 @pytest.mark.parametrize("value", [True, False, float("inf"), float("nan"), "Infinity", object()])

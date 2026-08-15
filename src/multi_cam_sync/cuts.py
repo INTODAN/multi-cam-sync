@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable
 from decimal import Decimal
+from fractions import Fraction
 
 from pydantic import ValidationError
 
@@ -14,13 +15,14 @@ from multi_cam_sync.time_values import (
     clean_take_name,
     parse_decimal_seconds,
     parse_decimal_timestamp,
+    parse_frame_timestamp,
 )
 
 _FIELD_PATTERN = re.compile(r"^(?P<field>Out|In)\s*:\s*(?P<value>.*)$", re.IGNORECASE)
 
 
-def parse_cut_list(text: str) -> tuple[CutTransition, ...]:
-    """Parse ordered transition blocks from a composite-cuts document."""
+def parse_cut_list(text: str, *, frame_rate: Fraction | None = None) -> tuple[CutTransition, ...]:
+    """Parse decimal or timeline-frame transition blocks from a cuts document."""
     if not isinstance(text, str):
         raise CutListError("cut list must be text")
 
@@ -66,7 +68,19 @@ def parse_cut_list(text: str) -> tuple[CutTransition, ...]:
             )
 
         try:
-            timestamp = parse_decimal_timestamp(line)
+            if ";" in line:
+                raise ValueError(
+                    "drop-frame cut timecode is not supported; use decimal time or "
+                    "non-drop HH:MM:SS:FF"
+                )
+            if line.count(":") == 3:
+                if frame_rate is None:
+                    raise ValueError(
+                        "frame timecode requires the active Resolve timeline frame rate"
+                    )
+                timestamp = parse_frame_timestamp(line, frame_rate)
+            else:
+                timestamp = parse_decimal_timestamp(line)
             transition = CutTransition(
                 outgoing_take=block["out"][0],
                 incoming_take=block["in"][0],

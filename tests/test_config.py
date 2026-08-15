@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from fractions import Fraction
 from pathlib import Path
 
 import pytest
@@ -55,6 +56,23 @@ def test_explicit_empty_sources_are_valid(tmp_path: Path) -> None:
     spec = load_project_spec(_write_project(tmp_path, config, SIMPLE_CUTS))
 
     assert spec.sources == ()
+
+
+def test_frame_cut_list_can_be_cross_validated_with_an_explicit_rate(tmp_path: Path) -> None:
+    cuts = "Out: Take 1\nIn: Take 2\n00:00:10:03\n"
+    path = _write_project(tmp_path, _base_config(), cuts)
+
+    spec = load_project_spec(path, cut_frame_rate=Fraction(24))
+
+    assert spec.project.cuts_file == (tmp_path / "cuts.txt").resolve()
+
+
+def test_standalone_config_load_explains_missing_rate_for_frame_cuts(tmp_path: Path) -> None:
+    cuts = "Out: Take 1\nIn: Take 2\n00:00:10:03\n"
+    path = _write_project(tmp_path, _base_config(), cuts)
+
+    with pytest.raises(ConfigError, match="requires the active Resolve timeline frame rate"):
+        load_project_spec(path)
 
 
 def test_partial_video_candidates_are_grouped_deterministically(tmp_path: Path) -> None:

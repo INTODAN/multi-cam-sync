@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import re
 from decimal import Decimal, InvalidOperation
+from fractions import Fraction
 
 from multi_cam_sync.domain.errors import TimeValueError
 
 _TIMESTAMP_PATTERN = re.compile(
     r"^(?P<hours>\d{2,}):(?P<minutes>[0-5]\d):(?P<seconds>[0-5]\d)(?:\.(?P<fraction>\d+))?$"
+)
+_FRAME_TIMECODE_PATTERN = re.compile(
+    r"^(?P<hours>\d{2,}):(?P<minutes>[0-5]\d):(?P<seconds>[0-5]\d):(?P<frames>\d{2,})$"
 )
 
 
@@ -29,6 +33,35 @@ def parse_decimal_timestamp(value: str) -> Decimal:
     fraction_digits = match.group("fraction")
     fraction = Decimal(f"0.{fraction_digits}") if fraction_digits else Decimal(0)
     return hours * Decimal(3600) + minutes * Decimal(60) + seconds + fraction
+
+
+def parse_frame_timestamp(value: str, frame_rate: Fraction) -> Decimal:
+    """Parse non-drop ``HH:MM:SS:FF`` into seconds at an exact frame rate."""
+    if not isinstance(value, str):
+        raise TimeValueError(f"frame timecode must be text, got {type(value).__name__}")
+    if frame_rate <= 0:
+        raise TimeValueError("frame timecode rate must be positive")
+    stripped = value.strip()
+    match = _FRAME_TIMECODE_PATTERN.fullmatch(stripped)
+    if match is None:
+        raise TimeValueError(f"invalid frame timecode {value!r}; expected non-drop HH:MM:SS:FF")
+
+    nominal_rate = (2 * frame_rate.numerator + frame_rate.denominator) // (
+        2 * frame_rate.denominator
+    )
+    frame = int(match.group("frames"))
+    if frame >= nominal_rate:
+        raise TimeValueError(
+            f"invalid frame timecode {value!r}; frame must be from 00 to "
+            f"{nominal_rate - 1:02d} at {frame_rate} fps"
+        )
+    elapsed_seconds = (
+        int(match.group("hours")) * 3600
+        + int(match.group("minutes")) * 60
+        + int(match.group("seconds"))
+    )
+    total_frames = elapsed_seconds * nominal_rate + frame
+    return Decimal(total_frames * frame_rate.denominator) / Decimal(frame_rate.numerator)
 
 
 def parse_decimal_seconds(value: object, *, field_name: str) -> Decimal:

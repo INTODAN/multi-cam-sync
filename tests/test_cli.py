@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from decimal import Decimal
 from io import StringIO
 from pathlib import Path
 from types import SimpleNamespace
@@ -162,13 +163,26 @@ def test_analyze_writes_report_and_unsafe_returns_four(monkeypatch, tmp_path: Pa
         video_status=SimpleNamespace(value="unsafe"),
         segment_id="segment-0001",
         take="Take A",
+        source_id="take-a-source",
         blockers=("ambiguous",),
+        suggested_manual_offset_seconds=Decimal("1.25"),
     )
     service.outcome = AnalysisOutcome(
         report=cast("AlignmentReport", SimpleNamespace(segments=(unsafe,))),
         unsafe_count=1,
     )
-    assert main(["analyze", "project.toml", "--report", str(path)], service=service) == 4
+    unsafe_output = StringIO()
+    assert (
+        main(
+            ["analyze", "project.toml", "--report", str(path)],
+            service=service,
+            stdout=unsafe_output,
+        )
+        == 4
+    )
+    assert "Suggested for source 'take-a-source': manual_offset_seconds = 1.25" in (
+        unsafe_output.getvalue()
+    )
 
 
 def test_build_reads_report_and_calls_gateway_once(monkeypatch, tmp_path: Path) -> None:
