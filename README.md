@@ -363,6 +363,11 @@ in one authorized run.
 
 ## Project documentation
 
+- [Arabesques session color matching](arabesques/COLOR_MATCHING.md) and
+  [camera preset and manual refinement](arabesques/color-match.toml) for additional
+  footage from the same recording session; includes native multicam grading and verification.
+- [Multicam color review skill](.agents/skills/review-multicam-color/SKILL.md) for
+  comparing takes, camera angles, important image areas, and continuity at cuts.
 - [Product and technical specification](specifications.md)
 - [Implementation plan](plans/PROJECT_PLAN.md)
 - [Human guide and acceptance checklist](plans/HUMAN_GUIDE.md)
