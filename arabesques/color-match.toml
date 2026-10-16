@@ -1,0 +1,192 @@
+# Session reference: approved primary match plus the current manual refinement.
+# The multi-cam-sync CLI does not load this file; see COLOR_MATCHING.md.
+preset_version = 5
+session = "Winter Recording session 2025"
+camera_session = "Session 2"
+project = "Arabesques"
+validated_on = 2026-10-10
+resolve_version = "21.1.1"
+guide = "COLOR_MATCHING.md"
+
+[application]
+target = "camera source clips inside the shared multicam"
+primary_match_palette = "Primaries - Color Wheels"
+primary_match_node = "01"
+value_mode = "absolute"
+local_version_name_template = "Camera match YYYY-MM-DD"
+preserve_original_version = true
+apply_once_per_source_clip = true
+other_controls = "unchanged except the hands refinement and explicit per-take overrides below"
+
+# Temperature is the Resolve primary control value, not a Kelvin reading.
+# These are per-camera starting points. Compare each take visually and check
+# validated_multicams for documented exceptions; same-session footage can vary.
+[cameras.face]
+apply = true
+temperature = 350.0
+tint = -2.0
+contrast = 1.035
+source_folder_hint = "itai Elidan session 2 face"
+
+[cameras.hands]
+apply = true
+temperature = 500.0
+tint = -1.0
+contrast = 1.045
+source_folder_hint = "Itai Elidan 2nd session hands"
+
+[cameras.hands.refinement]
+status = "applied and verified; awaiting user review"
+local_version = "Manual refine v2 2026-10-09"
+grade_file = "grades/session2-hands-manual-v2.drx"
+reference_image = "grades/session2-hands-manual-v2.jpg"
+grade_file_scope = "complete three-node hands grade; replaces rather than appends"
+node_order = ["01 primary match", "02 navy and highlights", "03 fabric detail"]
+framing_requirement = "fixed hands-camera framing, with jacket on the left"
+
+[cameras.hands.refinement.node_02.color_slice.blue]
+center = 0.0
+hue = 0.0
+density = -0.5
+saturation = 1.1
+
+[cameras.hands.refinement.node_02.soft_clip]
+channels = "RGB linked"
+low = 50.0
+high = 50.0
+low_soft = 0.0
+high_soft = 30.0
+
+[cameras.hands.refinement.node_03.primaries]
+gamma_master = 0.04
+gamma_rgb = [0.0, 0.0, 0.0]
+saturation = 60.0
+
+[cameras.hands.refinement.node_03.qualifier]
+mode = "HSL"
+hue_center = 50.0
+hue_width = 100.0
+hue_soft = 0.0
+hue_symmetry = 50.0
+saturation_low = 0.0
+saturation_high = 100.0
+saturation_low_soft = 0.0
+saturation_high_soft = 0.0
+luminance_low = 0.0
+luminance_high = 62.0
+luminance_low_soft = 0.0
+luminance_high_soft = 12.0
+pre_filter = 5.0
+blur_radius = 8.0
+other_matte_controls = "defaults"
+
+[cameras.hands.refinement.node_03.window]
+shape = "Linear rectangle, default corner geometry"
+size = 50.0
+aspect = 12.5
+pan = 40.6
+tilt = 50.0
+rotate = 0.0
+opacity = 100.0
+soft_1 = 4.0
+soft_2 = 4.0
+soft_3 = 4.0
+soft_4 = 4.0
+tracking = "none; static window verified at sampled positions"
+
+[cameras.wide]
+apply = false
+role = "default session reference; check explicit per-take overrides"
+source_folder_hint = "Itai Elidan session 2 long shot"
+
+# Historical mappings for existing multicams. Identify new clips visually;
+# angle/track numbers and thumbnail order are not stable camera identifiers.
+[[validated_multicams]]
+media_pool_folder = "Master/multicams"
+name = "Take 1 multicam"
+face_track = 1
+hands_track = 2
+wide_track = 3
+face_active_version = "Take 1 - Camera match 2026-10-09"
+hands_active_version = "Manual refine v2 2026-10-09"
+previous_hands_version = "Take 1 - Camera match 2026-10-09"
+
+[[validated_multicams]]
+media_pool_folder = "Master/multicams"
+name = "Take 8 Multicam"
+face_track = 3
+hands_track = 2
+wide_track = 1
+face_active_version = "Camera match 2026-10-09"
+hands_active_version = "Manual refine v2 2026-10-09"
+previous_hands_version = "Camera match 2026-10-09"
+
+[[validated_multicams]]
+media_pool_folder = "Master/multicams"
+name = "Take 9 Multicam"
+face_track = 2
+hands_track = 1
+wide_track = 3
+face_active_version = "Face balance Take 9 2026-10-09"
+previous_face_version = "Camera match 2026-10-09"
+wide_active_version = "Take 9 wide v2 2026-10-10"
+previous_wide_version = "Wide balance Take 9 2026-10-09"
+original_wide_version = "Version 1"
+hands_active_version = "Manual refine v2 2026-10-09"
+previous_hands_version = "Camera match 2026-10-09"
+
+[validated_multicams.face_override]
+status = "applied and verified; awaiting user review"
+source = "Take 9 - 2 - 00021.mov"
+reason = "Warmer appearance than Take 8 with the identical original face preset"
+node = "01"
+value_mode = "absolute"
+temperature = 0.0
+tint = -2.0
+contrast = 1.035
+gain_master = 0.98
+gain_rgb = [1.0, 1.0, 1.0]
+other_controls = "unchanged from the preserved primary-match version"
+reference_full_timeline_timecode = "01:01:48:00"
+target_full_timeline_timecode = "01:02:13:12"
+reviewed_multicam_offsets_seconds = [65, 155, 260]
+
+[validated_multicams.wide_override]
+status = "applied and verified; awaiting user review"
+reviewed_on = 2026-10-10
+source = "Take 9 - 2 - 00066.mov"
+reason = "Residual brightness, pink tint, and wall/floor warmth after the first wide balance"
+node = "01"
+value_mode = "absolute"
+temperature = -400.0
+tint = -4.0
+contrast = 1.0
+gain_master = 0.97
+gain_rgb = [1.0, 1.0, 1.0]
+saturation = 48.0
+other_controls = "unchanged from the preserved neutral Version 1"
+full_timeline_timecode = "01:02:31:19"
+reviewed_multicam_offsets_seconds = [65, 155, 260]
+
+[[validated_multicams]]
+media_pool_folder = "Master/multicams"
+name = "Take 2,6,7 Multicam"
+face_track = 3
+hands_track = 2
+wide_track = 1
+face_active_version = "Camera match 2026-10-09"
+hands_active_version = "Manual refine v2 2026-10-09"
+previous_hands_version = "Camera match 2026-10-09"
+
+[review]
+date = 2026-10-09
+multicam_count = 4
+cameras = ["face", "hands", "wide"]
+source_sample_count = 36
+full_timeline_shot_count = 46
+method = "Three positions per camera in every multicam, plus one midpoint frame per edited shot"
+finding = "The initial overall-consistency assessment was too broad; residual Take 9 wide differences prompted a second refinement on 2026-10-10"
+limitation = "Sampled still-image review; small local lighting and pose differences remain"
+local_evidence = "reports/all-camera-review-20261009/"
+latest_wide_refinement = 2026-10-10
+latest_wide_evidence = "reports/take9-wide-v2-20261010/"

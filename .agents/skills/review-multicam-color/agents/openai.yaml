@@ -1,0 +1,4 @@
+interface:
+  display_name: "Review Multicam Color"
+  short_description: "Check color consistency across takes and angles"
+  default_prompt: "Use $review-multicam-color to assess the color match across takes and camera angles, inspect the jacket, skin, walls, and highlights, and report the reviewed scope and remaining differences."
